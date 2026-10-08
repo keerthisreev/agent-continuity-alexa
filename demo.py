@@ -53,6 +53,10 @@ def run_scenario(failure: str, diagnostician):
     elif failure == "gray":
         primaries["remediation"].backend.mode = "gray"
 
+    view = outside_view(failure, primaries)
+    if view is not None:
+        print(view)
+
     process_incident(layer, store, primaries, inc2)
 
     # Recovery: the primary comes back; rejoin only after probes pass.
@@ -60,6 +64,18 @@ def run_scenario(failure: str, diagnostician):
     primaries["remediation"].backend.mode = "healthy"
     rejoined = layer.attempt_rejoin("remediation")
     return layer, store, inc1, inc2, rejoined
+
+
+def outside_view(failure: str, primaries) -> str | None:
+    """What conventional monitoring sees: process-level signals only.
+
+    For silent/gray failures the process looks perfectly healthy from the
+    outside -- this contrast is the point of the demo.
+    """
+    if failure == "hard":
+        return None  # a dead process is visible to every monitor
+    return ("[outside view] remediation process is ALIVE -- "
+            "a monitoring dashboard sees nothing wrong")
 
 
 def _t(tick: int) -> str:
@@ -78,7 +94,10 @@ def render_timeline(layer) -> list:
             lines.append(f"{_t(t)}  PROCESS DEAD -- {d['error']}")
         elif k in ("suspicion_canary", "targeted_canary", "recovery_probe"):
             verdict = "PASSED" if d["passed"] else "FAILED"
-            lines.append(f"{_t(t)}  semantic canary {verdict}"
+            label = {"suspicion_canary": "suspicion canary",
+                     "targeted_canary": "targeted canary",
+                     "recovery_probe": "recovery probe"}[k]
+            lines.append(f"{_t(t)}  {label} {verdict}"
                          + (f" -- {d['reasons'][0]}" if d["reasons"] else ""))
         elif k == "state_transition" and d["to"] in ("QUARANTINED", "FAILOVER",
                                                      "RECOVERING", "REJOIN"):

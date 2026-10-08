@@ -64,10 +64,21 @@ def _deep_merge(base: dict, override: dict) -> dict:
 
 
 def load_config(path: str | None = None) -> dict:
-    """Load configuration. Explicit path > ./continuity.yaml > defaults."""
+    """Load configuration. Explicit path > ./continuity.yaml > defaults.
+
+    Fails loud when a config file is present but PyYAML is unavailable:
+    silently running on defaults while the operator believes their file
+    is in effect would be a continuity hazard of its own.
+    """
     candidate = path or (CONFIG_FILE if os.path.exists(CONFIG_FILE) else None)
-    if candidate is None or yaml is None:
+    if candidate is None:
         return copy.deepcopy(DEFAULTS)
+    if yaml is None:
+        raise ImportError(
+            f"{candidate}: PyYAML is required to read config files "
+            "(pip install -r requirements.txt); refusing to run on "
+            "defaults while a config file exists"
+        )
     with open(candidate, "r", encoding="utf-8") as fh:
         raw = yaml.safe_load(fh) or {}
     if not isinstance(raw, dict):
