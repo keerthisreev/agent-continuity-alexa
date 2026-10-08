@@ -8,6 +8,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List
 
+#: Continuity-package schema version. Bumped whenever the package layout
+#: changes in a way old standbys must not silently accept.
+SCHEMA_VERSION = 1
+
+
+class UnknownSchemaVersion(Exception):
+    """A continuity package carries a schema the standby cannot read."""
+
 
 @dataclass
 class ContinuityPackage:
@@ -19,6 +27,16 @@ class ContinuityPackage:
     completed_action_ids: List[str] = field(default_factory=list)
     evidence_refs: List[str] = field(default_factory=list)
     state: Dict = field(default_factory=dict)
+    schema_version: int = SCHEMA_VERSION
+
+    def check_version(self) -> None:
+        """Fail closed on unknown schemas: never resume from unreadable state."""
+        if self.schema_version != SCHEMA_VERSION:
+            raise UnknownSchemaVersion(
+                f"continuity package schema v{self.schema_version} "
+                f"is not readable by this standby (expects v{SCHEMA_VERSION}); "
+                "refusing to resume from it"
+            )
 
 
 def remediation_state_adapter(output: dict) -> Dict:

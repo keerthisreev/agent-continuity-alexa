@@ -17,40 +17,54 @@ healthy outputs, routes to the standby on failover, and fences epochs.
 """
 from __future__ import annotations
 
+import threading
+
 from .canary import CANARY_TASKS, CanaryRunner
-from .checkpoint import STATE_ADAPTERS, capture_package
+from .checkpoint import STATE_ADAPTERS, UnknownSchemaVersion, capture_package
+from .config import CONFIG, get as _cfg_get
 from .diagnostician import Diagnostician
 from .fencing import FencingAuthority, StaleEpochError
 from .ledger import ForensicLedger
+from .log import ContinuityLogger
 from .sentinel import (FAILOVER, HEALTHY, RECOVERING, REJOIN, Sentinel)
 
 
 class Clock:
-    """Logical clock: deterministic ticks, no wall time."""
+    """Logical clock: deterministic ticks, no wall time. Thread-safe."""
 
     def __init__(self):
         self.t = 0
+        self._lock = threading.RLock()
 
     def tick(self) -> int:
-        self.t += 1
-        return self.t
+        with self._lock:
+            self.t += 1
+            return self.t
 
     def now(self) -> int:
-        return self.t
+        with self._lock:
+            return self.t
 
 
 class ContinuityLayer:
-    def __init__(self, diagnostician: Diagnostician = None):
+    def __init__(self, diagnostician: Diagnostician = None, config: dict = None):
+        self.config = config if config is not None else CONFIG
+        self.logger = ContinuityLogger(
+            path=_cfg_get(self.config, "logging", "path", default=None))
         self.clock = Clock()
-        self.fencing = FencingAuthority()
-        self.ledger = ForensicLedger(self.clock)
+        self.fencing = FencingAuthority(
+            ttl_ticks=_cfg_get(self.config, "epoch", "ttl_ticks", default=0),
+            logger=self.logger)
+        self.ledger = ForensicLedger(self.clock, logger=self.logger)
         self.canary_runner = CanaryRunner()
         self.sentinel = Sentinel(
             fencing=self.fencing, ledger=self.ledger,
             canary_runner=self.canary_runner, clock=self.clock,
-            diagnostician=diagnostician)
+            diagnostician=diagnostician, config=self.config,
+            logger=self.logger)
         self._reg: dict = {}
         self._checkpoints: dict = {}  # logical agent_id -> ContinuityPackage
+        self._lock = threading.RLock()
 
     # -- registration ------------------------------------------------------
     def register(self, agent_id: str, role_contract, state_adapter,
@@ -63,6 +77,9 @@ class ContinuityLayer:
             "state_adapter": adapter, "standby": standby,
             "canary_task": task,
         }
+        # The standby belongs to the layer's observability boundary now.
+        if getattr(standby, "logger", None) is None:
+            standby.logger = self.logger
         self.sentinel.register(agent_id, role_contract, task, primary)
         epoch = self.fencing.issue(agent_id)
         self.ledger.record("registered",
@@ -78,76 +95,104 @@ class ContinuityLayer:
 
         Returns a result dict the caller passes to apply_effects().
         On failover the stage is transparently retried with the standby.
+
+        Thread-safe: the layer lock guards observation/failover/checkpoint
+        sections; the agent's own handle() runs outside it so concurrent
+        roles are not serialized behind slow agents. Component locks
+        (sentinel, fencing, ledger, store, clock) protect shared state.
+
+        Concurrency note: the checkpoint slot holds the latest package per
+        role. Action ids embed the incident id and the failover merge is
+        guarded by incident match, so concurrent incidents can never
+        corrupt each other's resume decisions.
         """
         reg = self._reg[agent_id]
         role = reg["role"]
         incident_id = ctx["incident"]["id"]
         for _ in range(2):  # at most one failover per invocation
-            active = self.sentinel.active_for(agent_id)
-            agent = agent_fn if active == "primary" else reg["standby"].agent
-            epoch = self.fencing.current(agent.agent_id)
-            tick = self.clock.tick()
-            self.ledger.record(
-                "invoke",
-                {"agent": agent.agent_id, "role": role,
-                 "incident": incident_id, "epoch": epoch}, tick)
+            with self._lock:
+                active = self.sentinel.active_for(agent_id)
+                agent = agent_fn if active == "primary" else reg["standby"].agent
+                epoch = self.fencing.current(agent.agent_id)
+                tick = self.clock.tick()
+                self.ledger.record(
+                    "invoke",
+                    {"agent": agent.agent_id, "role": role,
+                     "incident": incident_id, "epoch": epoch}, tick)
             try:
                 output = agent.handle(ctx)
             except Exception as exc:  # noqa: BLE001 - crash is a signal
-                decision = self.sentinel.report_crash(agent_id, tick, exc)
-                self.ledger.record_stage(incident_id, role, agent.agent_id,
-                                         tick, "crashed")
-                if active == "standby":
-                    raise RuntimeError(f"standby {agent.agent_id} also crashed")
-                self._do_failover(agent_id, tick)
+                with self._lock:
+                    self.sentinel.report_crash(agent_id, tick, exc)
+                    self.ledger.record_stage(incident_id, role, agent.agent_id,
+                                             tick, "crashed")
+                    if active == "standby":
+                        raise RuntimeError(
+                            f"standby {agent.agent_id} also crashed")
+                    self._do_failover(agent_id, tick)
                 continue
-            decision = self.sentinel.check_output(agent_id, ctx, output, tick)
-            if decision == "failover":
+            with self._lock:
+                decision = self.sentinel.check_output(agent_id, ctx, output, tick)
+                if decision == "failover":
+                    self.ledger.record_stage(incident_id, role, agent.agent_id,
+                                             tick, "bad_output")
+                    crit = [v for v in self.sentinel.violations_of(agent_id)
+                            if v.severity == "critical"]
+                    if crit:
+                        # A plausible-but-wrong output was *attempted*: a human
+                        # should review what almost went out.
+                        self.ledger.flag_human_review(
+                            incident_id,
+                            f"{agent_id} attempted: {crit[0].message}", tick)
+                    self._do_failover(agent_id, tick)
+                    continue
+                outcome = "standby" if active == "standby" else "ok"
                 self.ledger.record_stage(incident_id, role, agent.agent_id,
-                                         tick, "bad_output")
-                crit = [v for v in self.sentinel.last_violations[agent_id]
-                        if v.severity == "critical"]
-                if crit:
-                    # A plausible-but-wrong output was *attempted*: a human
-                    # should review what almost went out.
-                    self.ledger.flag_human_review(
-                        incident_id,
-                        f"{agent_id} attempted: {crit[0].message}", tick)
-                self._do_failover(agent_id, tick)
-                continue
-            outcome = "standby" if active == "standby" else "ok"
-            self.ledger.record_stage(incident_id, role, agent.agent_id,
-                                     tick, outcome)
-            if decision == "ok":
-                planned = [self._action_id(incident_id, role, i, a)
-                           for i, a in enumerate(output.get("actions", []))]
-                new_pkg = capture_package(
-                    agent_id, role, incident_id, output, tick,
-                    reg["state_adapter"], planned)
-                # Preserve already-completed work for this incident across
-                # the failover boundary: the standby must not redo it.
-                prev = self._checkpoints.get(agent_id)
-                if prev is not None and prev.incident_id == incident_id:
-                    for aid in prev.completed_action_ids:
-                        if (aid in new_pkg.planned_action_ids
-                                and aid not in new_pkg.completed_action_ids):
-                            new_pkg.completed_action_ids.append(aid)
-                self._checkpoints[agent_id] = new_pkg
-            return {"agent_id": agent_id, "role": role,
-                    "incident_id": incident_id, "active": active,
-                    "active_agent_id": agent.agent_id, "epoch": epoch,
-                    "output": output, "tick": tick}
+                                         tick, outcome)
+                if decision == "ok":
+                    planned = [self._action_id(incident_id, role, i, a)
+                               for i, a in enumerate(output.get("actions", []))]
+                    new_pkg = capture_package(
+                        agent_id, role, incident_id, output, tick,
+                        reg["state_adapter"], planned)
+                    # Preserve already-completed work for this incident across
+                    # the failover boundary: the standby must not redo it.
+                    prev = self._checkpoints.get(agent_id)
+                    if prev is not None and prev.incident_id == incident_id:
+                        for aid in prev.completed_action_ids:
+                            if (aid in new_pkg.planned_action_ids
+                                    and aid not in new_pkg.completed_action_ids):
+                                new_pkg.completed_action_ids.append(aid)
+                    self._checkpoints[agent_id] = new_pkg
+                return {"agent_id": agent_id, "role": role,
+                        "incident_id": incident_id, "active": active,
+                        "active_agent_id": agent.agent_id, "epoch": epoch,
+                        "output": output, "tick": tick}
         raise RuntimeError(f"failover loop for {agent_id}")
 
     def _do_failover(self, agent_id: str, tick: int) -> None:
         reg = self._reg[agent_id]
         package = self._checkpoints.get(agent_id)
-        self.fencing.revoke(agent_id)
+        self.fencing.revoke(agent_id, tick)
         self.ledger.record("fencing",
                            {"agent": agent_id, "action": "epoch revoked"}, tick)
         standby = reg["standby"]
-        epoch = self.fencing.issue(standby.agent.agent_id)
-        standby.activate(package)
+        epoch = self.fencing.issue(standby.agent.agent_id, tick)
+        try:
+            standby.activate(package)
+        except UnknownSchemaVersion:
+            # Fail closed: never resume from an unreadable package. The
+            # standby takes over with a fresh checkpoint instead.
+            self.ledger.record(
+                "continuity_package_rejected",
+                {"agent": agent_id,
+                 "schema_version": getattr(package, "schema_version", None),
+                 "fallback": "standby starts fresh"}, tick)
+            self.logger.log("continuity_package_rejected", level="ERROR",
+                            tick=tick, agent=agent_id,
+                            schema_version=getattr(package, "schema_version", None))
+            standby.activate(None)
+            package = None
         self.sentinel.set_state(agent_id, FAILOVER, tick)
         self.ledger.mark_failover(tick, standby.agent.agent_id, epoch)
         self.ledger.record(
@@ -159,30 +204,61 @@ class ContinuityLayer:
 
     # -- effects -------------------------------------------------------------
     def apply_effects(self, result: dict, store) -> None:
-        """Apply an output's actions to the store: idempotent, epoch-fenced."""
-        agent_id = result["agent_id"]
-        package = self._checkpoints.get(agent_id)
-        for i, action in enumerate(result["output"].get("actions", [])):
-            action_id = self._action_id(result["incident_id"], result["role"],
-                                        i, action)
-            if package and action_id in package.completed_action_ids:
-                # Standby replays the plan; already-done work is skipped.
-                self.ledger.count_duplicate_prevented(action_id)
-                continue
-            applied = store.apply_effect(result["active_agent_id"],
-                                         result["epoch"], action_id, action)
-            if not applied:
-                self.ledger.count_duplicate_prevented(action_id)
-                continue
-            if package and action_id not in package.completed_action_ids:
-                package.completed_action_ids.append(action_id)
+        """Apply an output's actions to the store: idempotent, epoch-fenced.
+
+        Every action carries an explicit idempotency key; skips are logged
+        with their reason. Thread-safe.
+        """
+        with self._lock:
+            agent_id = result["agent_id"]
+            package = self._checkpoints.get(agent_id)
+            for i, action in enumerate(result["output"].get("actions", [])):
+                idempotency_key = self._action_id(result["incident_id"],
+                                                 result["role"], i, action)
+                if package and idempotency_key in package.completed_action_ids:
+                    # Standby replays the plan; already-done work is skipped.
+                    self._skip_duplicate(result, idempotency_key,
+                                         "already completed in continuity package")
+                    continue
+                try:
+                    applied = store.apply_effect(result["active_agent_id"],
+                                                 result["epoch"], idempotency_key,
+                                                 action, tick=result["tick"])
+                except StaleEpochError as exc:
+                    # Lost the race with a failover: the write is rejected,
+                    # never half-applied. Record and move on.
+                    self.ledger.record("stale_write_rejected",
+                                       {"agent": result["active_agent_id"],
+                                        "idempotency_key": idempotency_key,
+                                        "reason": str(exc)}, result["tick"])
+                    continue
+                if not applied:
+                    self._skip_duplicate(result, idempotency_key,
+                                         "already applied in store")
+                    continue
+                if (package
+                        and idempotency_key not in package.completed_action_ids):
+                    package.completed_action_ids.append(idempotency_key)
+
+    def _skip_duplicate(self, result: dict, idempotency_key: str,
+                        reason: str) -> None:
+        self.ledger.count_duplicate_prevented(idempotency_key, result["tick"])
+        self.logger.log("idempotent_skip", tick=result["tick"],
+                        incident_id=result["incident_id"],
+                        agent=result["active_agent_id"],
+                        idempotency_key=idempotency_key, reason=reason)
 
     # -- recovery --------------------------------------------------------------
     def attempt_rejoin(self, agent_id: str) -> bool:
         """Revalidate the primary and return it to service at a new epoch.
 
         The standby stays authoritative until every probe passes.
+        Thread-safe.
         """
+        with self._lock:
+            return self._attempt_rejoin_locked(agent_id)
+
+    def _attempt_rejoin_locked(self, agent_id: str) -> bool:
         tick = self.clock.tick()
         if self.sentinel.state_of(agent_id) != FAILOVER:
             return False
@@ -191,7 +267,7 @@ class ContinuityLayer:
             self.sentinel.set_state(agent_id, FAILOVER, tick)
             self.ledger.record("rejoin_denied", {"agent": agent_id}, tick)
             return False
-        new_epoch = self.fencing.issue(agent_id)
+        new_epoch = self.fencing.issue(agent_id, tick)
         self.sentinel.set_state(agent_id, REJOIN, tick)
         self._reg[agent_id]["standby"].stand_down()
         self.sentinel.set_state(agent_id, HEALTHY, tick)
