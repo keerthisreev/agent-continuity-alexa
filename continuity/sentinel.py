@@ -1,0 +1,205 @@
+"""The undercover Sentinel: deterministic role-health watchdog.
+
+Health is a VECTOR, not a score: liveness / contract / capability /
+business. Hysteresis keeps one bad output from causing a flapping
+failover:
+
+    HEALTHY --anomaly--> DEGRADED --(canary fail | repeated anomalies)--> QUARANTINED
+        ^                      |                                            |
+        |--- clean streak -----+                                     FAILOVER
+                                                                             |
+        HEALTHY <-- REJOIN <-- probes pass <-- RECOVERING <-- primary heals --+
+
+Canaries are suspicion-triggered (never continuous): they run when an
+anomaly is observed or during recovery probing. A failed canary, or any
+critical business-invariant violation, quarantines the agent.
+
+The optional diagnostician only annotates the ledger; it never changes a
+verdict. With diagnostician=None the sentinel is fully authoritative.
+"""
+from __future__ import annotations
+from dataclasses import dataclass
+from typing import Dict, List, Optional
+
+HEALTHY = "HEALTHY"
+DEGRADED = "DEGRADED"
+QUARANTINED = "QUARANTINED"
+FAILOVER = "FAILOVER"
+RECOVERING = "RECOVERING"
+REJOIN = "REJOIN"
+
+_ACTIVE_STATES = (QUARANTINED, FAILOVER, RECOVERING)  # standby is authoritative
+
+
+@dataclass
+class HealthVector:
+    liveness: Optional[bool] = None
+    contract: Optional[bool] = None
+    capability: Optional[bool] = None
+    business: Optional[bool] = None
+
+    def as_dict(self) -> dict:
+        return {"liveness": self.liveness, "contract": self.contract,
+                "capability": self.capability, "business": self.business}
+
+
+class Sentinel:
+    def __init__(self, *, fencing, ledger, canary_runner, clock,
+                 diagnostician=None, anomaly_threshold: int = 2,
+                 clean_streak_to_heal: int = 2):
+        self.fencing = fencing
+        self.ledger = ledger
+        self.canary_runner = canary_runner
+        self.clock = clock
+        self.diagnostician = diagnostician
+        self.anomaly_threshold = anomaly_threshold
+        self.clean_streak_to_heal = clean_streak_to_heal
+        self._reg: Dict[str, dict] = {}
+        self.health: Dict[str, HealthVector] = {}
+        self.state: Dict[str, str] = {}
+        self.anomalies: Dict[str, int] = {}
+        self.clean_streak: Dict[str, int] = {}
+        self.first_anomaly_tick: Dict[str, int] = {}
+        self.last_violations: Dict[str, List[str]] = {}
+
+    # -- registration ----------------------------------------------------
+    def register(self, agent_id: str, contract, canary_task, primary_agent) -> None:
+        self._reg[agent_id] = {"contract": contract, "canary_task": canary_task,
+                               "primary": primary_agent}
+        self.health[agent_id] = HealthVector()
+        self.state[agent_id] = HEALTHY
+        self.anomalies[agent_id] = 0
+        self.clean_streak[agent_id] = 0
+        self.last_violations[agent_id] = []
+
+    def state_of(self, agent_id: str) -> str:
+        return self.state[agent_id]
+
+    def active_for(self, agent_id: str) -> str:
+        """Which side is authoritative: 'primary' or 'standby'."""
+        return "standby" if self.state[agent_id] in _ACTIVE_STATES else "primary"
+
+    def primary_of(self, agent_id: str):
+        return self._reg[agent_id]["primary"]
+
+    def set_state(self, agent_id: str, new_state: str, tick: int) -> None:
+        old = self.state[agent_id]
+        self.state[agent_id] = new_state
+        self.ledger.record("state_transition",
+                           {"agent": agent_id, "from": old, "to": new_state}, tick)
+
+    # -- observation -------------------------------------------------------
+    def _consult(self, agent_id: str, tick: int) -> None:
+        """Optional reasoning note. Advisory only -- never alters the verdict."""
+        if self.diagnostician is None:
+            return
+        hv = self.health[agent_id]
+        note = self.diagnostician.diagnose(
+            agent_id, hv.as_dict(),
+            [v.message for v in self.last_violations[agent_id]])
+        self.ledger.record("diagnostician_note", {"agent": agent_id, "note": note}, tick)
+
+    def check_output(self, agent_id: str, ctx: dict, output: dict,
+                     tick: int) -> str:
+        """Evaluate one agent output. Returns 'ok' | 'degraded' | 'failover'."""
+        reg = self._reg[agent_id]
+        hv = self.health[agent_id]
+        hv.liveness = True
+        violations = reg["contract"].check(ctx, output)
+        self.last_violations[agent_id] = violations
+        crit = [v for v in violations if v.severity == "critical"]
+        anom = [v for v in violations if v.severity == "anomaly"]
+
+        if crit:
+            hv.business = False
+            if anom:
+                hv.contract = False
+            self.ledger.record(
+                "critical_violation",
+                {"agent": agent_id,
+                 "violations": [v.message for v in crit]}, tick)
+            # Targeted canary for evidence, then quarantine regardless.
+            result = self.canary_runner.run(reg["primary"], reg["canary_task"])
+            hv.capability = result.passed
+            self.ledger.record(
+                "targeted_canary",
+                {"agent": agent_id, "passed": result.passed,
+                 "reasons": result.reasons}, tick)
+            self._consult(agent_id, tick)
+            self._quarantine(agent_id, tick,
+                             "critical business-invariant violation")
+            return "failover"
+
+        if anom:
+            hv.contract = False
+            self.anomalies[agent_id] += 1
+            self.clean_streak[agent_id] = 0
+            if agent_id not in self.first_anomaly_tick:
+                self.first_anomaly_tick[agent_id] = tick
+            self.ledger.record(
+                "anomaly",
+                {"agent": agent_id,
+                 "violations": [v.message for v in anom],
+                 "anomaly_count": self.anomalies[agent_id]}, tick)
+            if self.anomalies[agent_id] == 1:
+                self.set_state(agent_id, DEGRADED, tick)
+            # Suspicion-triggered canary (never continuous).
+            result = self.canary_runner.run(reg["primary"], reg["canary_task"])
+            hv.capability = result.passed
+            self.ledger.record(
+                "suspicion_canary",
+                {"agent": agent_id, "passed": result.passed,
+                 "reasons": result.reasons}, tick)
+            self._consult(agent_id, tick)
+            if not result.passed or self.anomalies[agent_id] >= self.anomaly_threshold:
+                reason = (f"canary failed: {result.reasons}"
+                          if not result.passed else "repeated anomalies")
+                self._quarantine(agent_id, tick, reason)
+                return "failover"
+            return "degraded"
+
+        hv.contract = True
+        hv.business = True
+        self.clean_streak[agent_id] += 1
+        if (self.state[agent_id] == DEGRADED
+                and self.clean_streak[agent_id] >= self.clean_streak_to_heal):
+            self.state[agent_id] = HEALTHY
+            self.anomalies[agent_id] = 0
+            self.ledger.record("returned_to_healthy", {"agent": agent_id}, tick)
+        return "ok"
+
+    def report_crash(self, agent_id: str, tick: int, exc: Exception) -> str:
+        """Hard failure: the process is gone. No hysteresis needed."""
+        if self.state[agent_id] in _ACTIVE_STATES:
+            self.ledger.record("crash_while_failed_over",
+                               {"agent": agent_id, "error": str(exc)}, tick)
+            return "failover"
+        self.health[agent_id].liveness = False
+        if agent_id not in self.first_anomaly_tick:
+            self.first_anomaly_tick[agent_id] = tick
+        self.ledger.record("crash", {"agent": agent_id, "error": str(exc)}, tick)
+        self._consult(agent_id, tick)
+        self._quarantine(agent_id, tick, f"process dead: {exc}")
+        return "failover"
+
+    def _quarantine(self, agent_id: str, tick: int, reason: str) -> None:
+        self.set_state(agent_id, QUARANTINED, tick)
+        self.ledger.begin_failure_window(
+            agent_id, tick, reason,
+            first_anomaly_tick=self.first_anomaly_tick.get(agent_id, tick))
+
+    # -- recovery ------------------------------------------------------------
+    def probe_recovery(self, agent_id: str, tick: int) -> bool:
+        """Run recovery probes against the primary. True if it may rejoin."""
+        reg = self._reg[agent_id]
+        primary = reg["primary"]
+        if not primary.alive:
+            self.ledger.record("recovery_probe",
+                               {"agent": agent_id, "passed": False,
+                                "reasons": ["process still dead"]}, tick)
+            return False
+        result = self.canary_runner.run(primary, reg["canary_task"])
+        self.ledger.record("recovery_probe",
+                           {"agent": agent_id, "passed": result.passed,
+                            "reasons": result.reasons}, tick)
+        return result.passed
