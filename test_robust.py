@@ -35,7 +35,7 @@ def test_config_defaults_and_override():
     cfg = load_config()  # no continuity.yaml in repo root -> defaults
     assert get(cfg, "hysteresis", "anomaly_threshold") == 2
     assert get(cfg, "hysteresis", "clean_streak_to_heal") == 2
-    assert get(cfg, "nemotron", "model") == "nvidia/Nemotron-3-Nano-30B"
+    assert get(cfg, "nemotron", "model") == "nvidia/Nemotron-3.5-Super-VL"
     assert get(cfg, "nemotron", "timeout_s") == 20
     assert get(cfg, "nemotron", "retries") == 2
 
@@ -261,8 +261,8 @@ def test_nemotron_retry_then_success():
                               backoff_base_s=0, retries=2)
     note = d.diagnose("remediation", {"contract": False}, ["v"])
     assert "nemotron-diagnosis(remediation)" in note
-    assert "nvidia/Nemotron-3-Nano-30B" in note
-    assert len(calls) == 3 and all(c == "nvidia/Nemotron-3-Nano-30B" for c in calls)
+    assert "nvidia/Nemotron-3.5-Super-VL" in note
+    assert len(calls) == 3 and all(c == "nvidia/Nemotron-3.5-Super-VL" for c in calls)
     assert not d.circuit_open
     print("PASS nemotron: 2 retries then success, no exception")
 

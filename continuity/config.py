@@ -32,8 +32,8 @@ DEFAULTS = {
         "ttl_ticks": 0,              # 0 = epochs never expire (current behavior)
     },
     "nemotron": {
-        "model": "nvidia/Nemotron-3-Nano-30B",
-        "base_url": "https://api.tokenfactory.nebius.ai/v1",
+        "model": "nvidia/Nemotron-3.5-Super-VL",
+        "base_url": "https://api.tokenfactory.nebius.com/v1",
         "timeout_s": 20,
         "retries": 2,                # retries after the first attempt
         "circuit_breaker_failures": 3,

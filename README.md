@@ -49,8 +49,8 @@ forensic ledger.
   |  standby.py    hot-standby lifecycle             |
   |  ledger.py     forensic record + affected-work   |
   |  metrics.py    TSFD / TRV / AFR                  |
-  |  diagnostician.py  OPTIONAL Nemotron notes      |
-  |                    (advisory only, never a vote)  |
+  |  diagnostician.py  OPTIONAL Nemotron notes +     |
+  |                    narratives (advisory only)    |
   +=================================================+
       v
   incident store (your existing infrastructure,
@@ -60,9 +60,9 @@ forensic ledger.
 **Design rules (frozen):**
 - Agents are never modified — the layer observes inputs/outputs/effects
   through the adapter boundary only (`agents/` never imports `continuity/`).
-- The deterministic sentinel is always authoritative. The Nemotron
-  diagnostician only annotates the ledger; verdicts are identical with it
-  disabled.
+- The deterministic sentinel is always authoritative. Nemotron writes
+  canary scenarios and forensic narratives; the deterministic oracle judges
+  every probe and verdicts are identical with the model disabled.
 - Canaries are suspicion-triggered, never continuous.
 - No split brain: stale epochs are rejected until revalidation.
 - Resume, not restart: completed actions are never redone.
@@ -158,20 +158,32 @@ Computed from the forensic ledger (`continuity/metrics.py`,
 
 ## Nebius Token Factory + Nemotron
 
-`continuity/diagnostician.py`: when **`NEBIUS_API_KEY`** is set,
-`NemotronDiagnostician` calls a Nemotron model
-(default `nvidia/Nemotron-3-Nano-30B`, overridable in `continuity.yaml`)
-through the Nebius Token Factory OpenAI-compatible chat-completions
-endpoint. Production behavior: 20s timeout, 2 retries with exponential
-backoff, circuit breaker (3 consecutive failures → 60s open → silent stub
-fallback). It **never** raises into the sentinel path and **never** changes
-a verdict — it writes advisory notes into the forensic ledger.
+Nemotron does two jobs a deterministic layer cannot do for itself — both via
+the Nebius Token Factory OpenAI-compatible chat-completions endpoint
+(`https://api.tokenfactory.nebius.com/v1/chat/completions`, default model
+`nvidia/Nemotron-3.5-Super-VL`, overridable in `continuity.yaml`):
 
-**What the video must show:** run `demo.py` (or the dashboard) with
-`NEBIUS_API_KEY` set — the ledger's diagnostician notes are visibly
-Nemotron-generated, proving real Nebius/NVIDIA usage. Without the key,
-everything runs fully deterministic on the stub; no test touches the
-network.
+1. **Canary generation** (`continuity/canary.py`): when **`NEBIUS_API_KEY`**
+   is set, `NemotronCanaryGenerator` invents diverse, adversarial probe
+   scenarios per role. The deterministic `CanaryOracle` still judges every
+   probe — the model writes scenarios, the oracle judges. No key → the
+   frozen static probe.
+2. **Forensic narrative** (`continuity/diagnostician.py`): after a failover,
+   Nemotron drafts the 2–3 sentence incident summary from the failure window
+   + affected-work map. Labeled `nemotron-narrative`, advisory only, never
+   consulted for a verdict.
+
+Production behavior: 20s timeout, 2 retries with exponential backoff,
+circuit breaker (3 consecutive failures → 60s open → silent stub fallback).
+The client **never** raises into the sentinel path and **never** changes a
+verdict — the governing principle is that the verifier must be dumber than
+the verified.
+
+**What the video must show:** run `demo.py` with `NEBIUS_API_KEY` set — the
+timeline prints `[nemotron] generated 3 canary probes for role=remediation`
+and the $20K screen renders the Nemotron-written forensic narrative. Without
+the key, everything runs fully deterministic on the stub (the demo prints
+the `[static]` fallback lines instead); no test touches the network.
 
 ## Layout
 
@@ -188,6 +200,7 @@ continuity/             the continuity layer (the product)
   ledger.py             forensic ledger + JSON export
   metrics.py            TSFD / TRV / AFR
   diagnostician.py      OPTIONAL Nemotron reasoning (advisory only)
+  nemotron.py           shared Token Factory client (canary gen + narratives)
   config.py             YAML + env config (defaults = brutal-proof behavior)
   log.py                structured JSONL logging with incident correlation ids
 dashboard/app.py        live video-readable dashboard (Flask)

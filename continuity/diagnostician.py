@@ -5,37 +5,34 @@ attaches explanatory notes to the forensic ledger; it can never change a
 verdict. The sentinel reaches correct verdicts with the diagnostician
 disabled (None).
 
-When the NEBIUS_API_KEY environment variable is set, NemotronDiagnostician
-calls a Nemotron model through the Nebius Token Factory OpenAI-compatible
-chat-completions endpoint, so the demo video visibly shows Nebius/NVIDIA
-usage. When the key is absent (all tests, all offline builds) it falls back
-to the deterministic stub. No network call is ever made without the key.
+Two Nemotron jobs (both advisory, both visible in the demo):
+  1. diagnose() -- per-anomaly explanatory notes (existing behavior)
+  2. incident_narrative() -- a 2-3 sentence forensic summary for the human
+     reviewer, written from the failure window + affected-work map
 
-Reliability contract (this is what makes it production-grade rather than a
-demo client):
-  - 20s timeout, 2 retries with exponential backoff (configurable)
-  - circuit breaker: 3 consecutive failures -> 60s open -> silent stub
-    fallback while open (configurable)
-  - diagnose() NEVER raises into the sentinel path: every failure degrades
-    to stub text with a log line
+When the NEBIUS_API_KEY environment variable is set, both go through the
+Nebius Token Factory OpenAI-compatible chat-completions endpoint. When the
+key is absent (all tests, all offline builds) the deterministic stub answers.
+No network call is ever made without the key.
+
+Reliability contract:
+  - diagnose()/incident_narrative() NEVER raise: every failure degrades to
+    stub text with a log line
+  - 20s timeout, 2 retries with exponential backoff, circuit breaker
+    (3 consecutive failures -> 60s open -> silent stub fallback)
 """
 from __future__ import annotations
 
-import json
-import os
-import threading
-import time
-from typing import Callable, List, Protocol
+from typing import List, Protocol
 
-import requests
-
-from .config import CONFIG, get as _cfg_get
-from .log import ContinuityLogger
+from .nemotron import NemotronClient
 
 
 class Diagnostician(Protocol):
     def diagnose(self, agent_id: str, health_vector: dict,
                  recent_violations: List[str]) -> str: ...
+
+    def incident_narrative(self, report: dict) -> str: ...
 
 
 class StubDiagnostician:
@@ -48,9 +45,24 @@ class StubDiagnostician:
                 "failing layers=%s; violations=%d; no model consulted"
                 % (agent_id, unhealthy or "none", len(recent_violations)))
 
+    def incident_narrative(self, report: dict) -> str:
+        return _stub_narrative(report)
 
-class _CircuitOpen(Exception):
-    pass
+
+def _stub_narrative(report: dict) -> str:
+    """Deterministic forensic summary. Advisory only, never a verdict."""
+    windows = report.get("failure_windows") or []
+    w = windows[0] if windows else {}
+    affected = report.get("affected_work") or {}
+    affected_txt = (", ".join(f"{k} ({v})" for k, v in affected.items())
+                    or "none recorded")
+    return (
+        "stub-narrative (deterministic, advisory only): role '%s' was fenced "
+        "and failed over at tick %s after first anomaly at tick %s (%s). "
+        "Affected work: %s. Duplicate writes prevented: %s."
+        % (w.get("agent", "?"), w.get("failover_tick", "?"),
+           w.get("first_anomaly_tick", "?"), w.get("reason", "?"),
+           affected_txt, report.get("duplicates_prevented", "?")))
 
 
 class NemotronDiagnostician:
@@ -65,87 +77,69 @@ class NemotronDiagnostician:
                  retries: int = None, circuit_breaker_failures: int = None,
                  circuit_breaker_open_s: float = None,
                  backoff_base_s: float = 0.5,
-                 transport: Callable[[dict], str] = None,
-                 config: dict = None, logger=None):
-        cfg = config if config is not None else CONFIG
-        self.api_key = api_key or os.environ.get("NEBIUS_API_KEY", "")
-        self.base_url = (base_url or _cfg_get(cfg, "nemotron", "base_url")).rstrip("/")
-        self.model = model or _cfg_get(cfg, "nemotron", "model")
-        self.timeout_s = (timeout_s if timeout_s is not None
-                          else _cfg_get(cfg, "nemotron", "timeout_s", default=20))
-        self.retries = (retries if retries is not None
-                        else _cfg_get(cfg, "nemotron", "retries", default=2))
-        self._breaker_threshold = (
-            circuit_breaker_failures if circuit_breaker_failures is not None
-            else _cfg_get(cfg, "nemotron", "circuit_breaker_failures", default=3))
-        self._breaker_open_s = (
-            circuit_breaker_open_s if circuit_breaker_open_s is not None
-            else _cfg_get(cfg, "nemotron", "circuit_breaker_open_s", default=60))
-        self._backoff_base_s = backoff_base_s
-        self._transport = transport or self._requests_transport
-        self.logger = logger or ContinuityLogger(name="diagnostician")
-        self._lock = threading.RLock()
-        self._consecutive_failures = 0
-        self._breaker_open_until = 0.0
+                 transport=None, config: dict = None, logger=None):
+        self._client = NemotronClient(
+            api_key=api_key, base_url=base_url, model=model,
+            timeout_s=timeout_s, retries=retries,
+            circuit_breaker_failures=circuit_breaker_failures,
+            circuit_breaker_open_s=circuit_breaker_open_s,
+            backoff_base_s=backoff_base_s, transport=transport,
+            config=config, logger=logger)
+        self.logger = self._client.logger
 
     @property
     def available(self) -> bool:
-        return bool(self.api_key)
+        return self._client.available
 
     @property
     def circuit_open(self) -> bool:
-        with self._lock:
-            return time.monotonic() < self._breaker_open_until
+        return self._client.circuit_open
+
+    @property
+    def model(self) -> str:
+        return self._client.model
 
     # -- public ----------------------------------------------------------
     def diagnose(self, agent_id: str, health_vector: dict,
                  recent_violations: List[str]) -> str:
         """Advisory note. NEVER raises: degrades to stub text on any failure."""
         try:
-            return self._diagnose_inner(agent_id, health_vector, recent_violations)
+            text = self._client.chat([
+                {"role": "system",
+                 "content": "You are a terse reliability engineer. Two sentences max."},
+                {"role": "user", "content": self._prompt(
+                    agent_id, health_vector, recent_violations)},
+            ], temperature=0.2, max_tokens=300)
+            return (f"nemotron-diagnosis({agent_id}) [{self.model}]: "
+                    f"{text[:600]}")
         except Exception as exc:  # noqa: BLE001 - never break the sentinel
             self.logger.log("diagnostician_failed", level="WARNING",
                             agent=agent_id, error=str(exc))
-            return (f"nemotron-diagnosis({agent_id}): model call failed ({exc}); "
-                    f"deterministic verdict stands")
-
-    # -- internals ---------------------------------------------------------
-    def _diagnose_inner(self, agent_id, health_vector, recent_violations) -> str:
-        if not self.available:
             return StubDiagnostician().diagnose(agent_id, health_vector,
                                                 recent_violations)
-        with self._lock:
-            if time.monotonic() < self._breaker_open_until:
-                self.logger.log("diagnostician_circuit_open", agent=agent_id,
-                                level="WARNING")
-                return StubDiagnostician().diagnose(agent_id, health_vector,
-                                                    recent_violations)
-        prompt = self._prompt(agent_id, health_vector, recent_violations)
-        body = {
-            "model": self.model,
-            "messages": [
-                {"role": "system",
-                 "content": "You are a terse reliability engineer. Two sentences max."},
-                {"role": "user", "content": prompt},
-            ],
-            "temperature": 0.2,
-            "max_tokens": 300,
-        }
-        last_exc: Exception | None = None
-        for attempt in range(self.retries + 1):
-            try:
-                text = self._transport(body)
-            except Exception as exc:  # noqa: BLE001 - transport failure is routine
-                last_exc = exc
-                if attempt < self.retries:
-                    time.sleep(self._backoff_base_s * (2 ** attempt))
-                continue
-            self._record_success()
-            return f"nemotron-diagnosis({agent_id}) [{self.model}]: {text.strip()[:600]}"
-        self._record_failure()
-        raise RuntimeError(f"all {self.retries + 1} attempts failed: {last_exc}")
 
+    def incident_narrative(self, report: dict) -> str:
+        """2-3 sentence forensic summary for the human reviewer.
+
+        Advisory only: written from the confirmed ledger, never consulted
+        for a verdict. NEVER raises.
+        """
+        try:
+            text = self._client.chat([
+                {"role": "system",
+                 "content": ("You are a terse reliability engineer writing a "
+                             "forensic incident summary. 2-3 sentences max.")},
+                {"role": "user", "content": self._narrative_prompt(report)},
+            ], temperature=0.2, max_tokens=300)
+            return (f"nemotron-narrative [{self.model}] (advisory only): {text[:600]}")
+        except Exception as exc:  # noqa: BLE001 - never break the sentinel
+            self.logger.log("narrative_failed", level="WARNING",
+                            error=str(exc))
+            return _stub_narrative(report)
+
+    # -- internals ---------------------------------------------------------
     def _prompt(self, agent_id, health_vector, recent_violations) -> str:
+        import json
         return (
             "You are a reliability engineer watching an AI incident-management "
             "agent. A deterministic watchdog already decided the agent's health; "
@@ -157,30 +151,33 @@ class NemotronDiagnostician:
             "Explain what failed and what it means operationally."
         )
 
-    def _requests_transport(self, body: dict) -> str:
-        resp = requests.post(
-            self.base_url + "/chat/completions",
-            json=body,
-            headers={"Authorization": f"Bearer {self.api_key}"},
-            timeout=self.timeout_s,
+    def _narrative_prompt(self, report: dict) -> str:
+        import json
+        windows = report.get("failure_windows") or []
+        w = windows[0] if windows else {}
+        brief = {
+            "failed_role": w.get("agent"),
+            "first_anomaly_tick": w.get("first_anomaly_tick"),
+            "failover_tick": w.get("failover_tick"),
+            "reason": w.get("reason"),
+            "affected_work": report.get("affected_work"),
+            "duplicates_prevented": report.get("duplicates_prevented"),
+            "human_review": [
+                {"incident": h.get("incident"), "reason": h.get("reason")}
+                for h in (report.get("human_review") or [])],
+            "recovery": ("primary rejoined at new epoch"
+                         if any(e.get("kind") == "rejoin_complete"
+                                for e in (report.get("timeline") or []))
+                         else "standby remained authoritative"),
+        }
+        return (
+            "A deterministic watchdog already confirmed this incident and its "
+            "handling; write a 2-3 sentence forensic summary for the human "
+            "reviewer covering: what failed, what work was affected and how it "
+            "was handled, and the recovery outcome. Do not hedge about the "
+            "verdict; it is confirmed.\n\n"
+            f"Incident facts: {json.dumps(brief, default=str)}"
         )
-        resp.raise_for_status()
-        payload = resp.json()
-        return payload["choices"][0]["message"]["content"]
-
-    def _record_success(self) -> None:
-        with self._lock:
-            self._consecutive_failures = 0
-
-    def _record_failure(self) -> None:
-        with self._lock:
-            self._consecutive_failures += 1
-            if self._consecutive_failures >= self._breaker_threshold:
-                self._breaker_open_until = (time.monotonic()
-                                            + self._breaker_open_s)
-                self.logger.log("diagnostician_circuit_opened", level="ERROR",
-                                consecutive_failures=self._consecutive_failures,
-                                open_s=self._breaker_open_s)
 
 
 def default_diagnostician(config: dict = None) -> Diagnostician:

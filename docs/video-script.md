@@ -51,12 +51,36 @@ write authority DENIED until revalidated → rejoined at new epoch.
 ## 2:30–3:00 — The layer + Nebius/NVIDIA
 
 - Same workflow, same agents, same tools — plus the continuity layer.
-- With `NEBIUS_API_KEY` set, the ledger's diagnostician notes are generated
-  by Nemotron via Nebius Token Factory (show the env var + a Nemotron note
-  in the output) — visible Nebius/NVIDIA usage.
+- With `NEBIUS_API_KEY` set, Nemotron does two visible jobs via Nebius Token
+  Factory: it *writes the canary probes* (show the `[nemotron] generated 3
+  canary probes for role=remediation` timeline lines — the model invents the
+  scenarios, the deterministic oracle judges them) and it *writes the
+  forensic narrative* (show the FORENSIC NARRATIVE block in the $20K screen).
+- Narration: "The verdicts are deterministic — the model can't inherit the
+  failures it's meant to catch. But Nemotron writes the probes that hunt the
+  failure, and the incident report the human reads. That's the model where it
+  adds value, and nowhere it could do harm."
 - Close: "Kubernetes keeps services alive. We keep agent workflows alive."
 
 ## Recording notes
 - Terminal font large; scroll slow enough to read.
 - The `--failure gray` mode shows the invariant-violation + human-review path.
 - Keep narration under the terminal; let the timeline tell the story.
+
+## Plan B — if the key check fails (film this instead)
+
+If the live Nemotron call doesn't go through before filming, do NOT fake
+the 2:30–3:00 beat. Film this replacement (~30s):
+
+- Run the demo without `NEBIUS_API_KEY`. The timeline will read
+  `[static] 1 deterministic canary probe for role=remediation (no key set)`
+  and the narrative block will read `stub-narrative (deterministic, …)`.
+- Narration: "The AI seam is a plug-in, not a dependency. The layer catches
+  the failure with zero model calls — Nemotron lights up the probes and the
+  forensic narrative once the key lands."
+- Before submitting, soften the Devpost "Built with" claim to match what
+  actually ran: keep Nebius/NVIDIA as designed integration, but remove any
+  line implying a live call happened. The eligibility gate checks for real
+  tool usage, not aspirational claims — an honest stub beats a failed
+  eligibility check. (Filming Plan B is also the cleanest backup for the
+  Sep-12-style verification the judges may run.)

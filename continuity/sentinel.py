@@ -88,9 +88,13 @@ class Sentinel:
         self.last_violations: Dict[str, List[str]] = {}
 
     # -- registration ----------------------------------------------------
-    def register(self, agent_id: str, contract, canary_task, primary_agent) -> None:
+    def register(self, agent_id: str, contract, canary_tasks, primary_agent) -> None:
+        # canary_tasks: list of CanaryTask (a lone task is wrapped).
+        if not isinstance(canary_tasks, (list, tuple)):
+            canary_tasks = [canary_tasks]
         with self._lock:
-            self._reg[agent_id] = {"contract": contract, "canary_task": canary_task,
+            self._reg[agent_id] = {"contract": contract,
+                                   "canary_tasks": list(canary_tasks),
                                    "primary": primary_agent}
             self.health[agent_id] = HealthVector()
             self.state[agent_id] = HEALTHY
@@ -129,6 +133,28 @@ class Sentinel:
             self.logger.log("state_transition", tick=tick, agent=agent_id,
                             **{"from": old, "to": new_state})
 
+    # -- canary suites ---------------------------------------------------
+    def _run_canary_suite(self, agent_id: str, tick: int,
+                          kind: str) -> "CanaryResult":
+        """Run every registered probe for the role. One ledger event per
+        probe (kind preserved, task name added); the suite fails if ANY
+        probe fails. The oracle judging each probe is deterministic --
+        whoever generated the scenario, a model never judges."""
+        from .canary import CanaryResult
+        reg = self._reg[agent_id]
+        reasons: List[str] = []
+        failed = False
+        for task in reg["canary_tasks"]:
+            result = self.canary_runner.run(reg["primary"], task)
+            self.ledger.record(
+                kind,
+                {"agent": agent_id, "task": task.name,
+                 "passed": result.passed, "reasons": result.reasons}, tick)
+            if not result.passed:
+                failed = True
+                reasons.extend(f"[{task.name}] {r}" for r in result.reasons)
+        return CanaryResult(not failed, reasons)
+
     # -- observation -------------------------------------------------------
     def _consult(self, agent_id: str, tick: int) -> None:
         """Optional reasoning note. Advisory only -- never alters the verdict."""
@@ -161,12 +187,8 @@ class Sentinel:
                 {"agent": agent_id,
                  "violations": [v.message for v in crit]}, tick)
             # Targeted canary for evidence, then quarantine regardless.
-            result = self.canary_runner.run(reg["primary"], reg["canary_task"])
+            result = self._run_canary_suite(agent_id, tick, "targeted_canary")
             hv.capability = result.passed
-            self.ledger.record(
-                "targeted_canary",
-                {"agent": agent_id, "passed": result.passed,
-                 "reasons": result.reasons}, tick)
             self._consult(agent_id, tick)
             self._quarantine(agent_id, tick,
                              "critical business-invariant violation")
@@ -186,12 +208,8 @@ class Sentinel:
             if self.anomalies[agent_id] == 1:
                 self.set_state(agent_id, DEGRADED, tick)
             # Suspicion-triggered canary (never continuous).
-            result = self.canary_runner.run(reg["primary"], reg["canary_task"])
+            result = self._run_canary_suite(agent_id, tick, "suspicion_canary")
             hv.capability = result.passed
-            self.ledger.record(
-                "suspicion_canary",
-                {"agent": agent_id, "passed": result.passed,
-                 "reasons": result.reasons}, tick)
             self._consult(agent_id, tick)
             if not result.passed or self.anomalies[agent_id] >= self.anomaly_threshold:
                 reason = (f"canary failed: {result.reasons}"
@@ -242,8 +260,5 @@ class Sentinel:
                                {"agent": agent_id, "passed": False,
                                 "reasons": ["process still dead"]}, tick)
             return False
-        result = self.canary_runner.run(primary, reg["canary_task"])
-        self.ledger.record("recovery_probe",
-                           {"agent": agent_id, "passed": result.passed,
-                            "reasons": result.reasons}, tick)
+        result = self._run_canary_suite(agent_id, tick, "recovery_probe")
         return result.passed

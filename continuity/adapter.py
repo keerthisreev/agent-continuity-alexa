@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import threading
 
-from .canary import CANARY_TASKS, CanaryRunner
+from .canary import CANARY_TASKS, CanaryRunner, default_canary_generator
 from .checkpoint import STATE_ADAPTERS, UnknownSchemaVersion, capture_package
 from .config import CONFIG, get as _cfg_get
 from .diagnostician import Diagnostician
@@ -47,7 +47,8 @@ class Clock:
 
 
 class ContinuityLayer:
-    def __init__(self, diagnostician: Diagnostician = None, config: dict = None):
+    def __init__(self, diagnostician: Diagnostician = None, config: dict = None,
+                 canary_generator=None):
         self.config = config if config is not None else CONFIG
         self.logger = ContinuityLogger(
             path=_cfg_get(self.config, "logging", "path", default=None))
@@ -57,6 +58,11 @@ class ContinuityLayer:
             logger=self.logger)
         self.ledger = ForensicLedger(self.clock, logger=self.logger)
         self.canary_runner = CanaryRunner()
+        # Who writes the probes: Nemotron when NEBIUS_API_KEY is set
+        # (scenarios only), the frozen static probe otherwise. Whoever
+        # writes them, the deterministic oracle judges them.
+        self.canary_generator = (canary_generator
+                                 or default_canary_generator(self.config))
         self.sentinel = Sentinel(
             fencing=self.fencing, ledger=self.ledger,
             canary_runner=self.canary_runner, clock=self.clock,
@@ -68,22 +74,33 @@ class ContinuityLayer:
 
     # -- registration ------------------------------------------------------
     def register(self, agent_id: str, role_contract, state_adapter,
-                 standby, primary=None, canary_task=None) -> None:
+                 standby, primary=None, canary_task=None,
+                 canary_tasks=None) -> None:
         role = role_contract.role
-        task = canary_task or CANARY_TASKS[role]
+        if canary_tasks is not None:
+            tasks = list(canary_tasks)
+        elif canary_task is not None:
+            tasks = [canary_task]
+        else:
+            tasks = self.canary_generator.generate(role) or [CANARY_TASKS[role]]
         adapter = state_adapter or STATE_ADAPTERS[role]
         self._reg[agent_id] = {
             "role": role, "contract": role_contract,
             "state_adapter": adapter, "standby": standby,
-            "canary_task": task,
+            "canary_tasks": tasks,
         }
         # The standby belongs to the layer's observability boundary now.
         if getattr(standby, "logger", None) is None:
             standby.logger = self.logger
-        self.sentinel.register(agent_id, role_contract, task, primary)
+        self.sentinel.register(agent_id, role_contract, tasks, primary)
         epoch = self.fencing.issue(agent_id)
         self.ledger.record("registered",
                            {"agent": agent_id, "role": role, "epoch": epoch})
+        self.ledger.record("canary_probes_generated",
+                           {"agent": agent_id, "role": role,
+                            "source": self.canary_generator.source,
+                            "count": len(tasks),
+                            "names": [t.name for t in tasks]})
 
     # -- invocation ----------------------------------------------------------
     @staticmethod

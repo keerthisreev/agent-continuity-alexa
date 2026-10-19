@@ -9,7 +9,7 @@ text match.
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List
+from typing import Callable, Dict, List, Protocol
 
 
 @dataclass
@@ -79,27 +79,148 @@ _CANARY_INCIDENT = {"id": "CANARY-1", "service": "payments-api",
 _CANARY_DIAGNOSIS = {"root_cause": "bad deployment v5.2",
                      "evidence": ["deploy log"], "confidence": 0.9}
 
-CANARY_TASKS: Dict[str, CanaryTask] = {
-    "triage": CanaryTask(
-        name="triage-canary-1", role="triage",
-        synthetic_ctx={"incident": dict(_CANARY_INCIDENT)},
-        oracle=_key_oracle(["severity", "category"]),
-    ),
-    "diagnosis": CanaryTask(
-        name="diagnosis-canary-1", role="diagnosis",
-        synthetic_ctx={"incident": dict(_CANARY_INCIDENT)},
-        oracle=_key_oracle(["root_cause", "evidence"]),
-    ),
-    "remediation": CanaryTask(
-        name="remediation-canary-1", role="remediation",
-        synthetic_ctx={"incident": dict(_CANARY_INCIDENT),
-                       "diagnosis": dict(_CANARY_DIAGNOSIS)},
-        oracle=remediation_canary_oracle,
-    ),
-    "escalation": CanaryTask(
-        name="escalation-canary-1", role="escalation",
-        synthetic_ctx={"incident": dict(_CANARY_INCIDENT),
-                       "remediation": {"remediation": "roll back"}},
-        oracle=_key_oracle(["ticket_id", "summary"]),
-    ),
+# Deterministic oracles per role -- the ONE source of truth for pass/fail.
+# Whoever generates a canary scenario, THIS judges it. Verdicts never come
+# from a model.
+ORACLES: Dict[str, Callable[[dict, dict], CanaryResult]] = {
+    "triage": _key_oracle(["severity", "category"]),
+    "diagnosis": _key_oracle(["root_cause", "evidence"]),
+    "remediation": remediation_canary_oracle,
+    "escalation": _key_oracle(["ticket_id", "summary"]),
 }
+
+_CANARY_CTX = {
+    "triage": {"incident": dict(_CANARY_INCIDENT)},
+    "diagnosis": {"incident": dict(_CANARY_INCIDENT)},
+    "remediation": {"incident": dict(_CANARY_INCIDENT),
+                    "diagnosis": dict(_CANARY_DIAGNOSIS)},
+    "escalation": {"incident": dict(_CANARY_INCIDENT),
+                   "remediation": {"remediation": "roll back"}},
+}
+
+CANARY_TASKS: Dict[str, CanaryTask] = {
+    role: CanaryTask(
+        name=f"{role}-canary-1", role=role,
+        synthetic_ctx=dict(ctx),
+        oracle=ORACLES[role],
+    )
+    for role, ctx in _CANARY_CTX.items()
+}
+
+
+# ---------------------------------------------------------------------------
+# Canary generators: who writes the probes (a model may), who judges them
+# (always the deterministic oracle above -- never a model).
+# ---------------------------------------------------------------------------
+
+class CanaryGenerator(Protocol):
+    """Produces probe scenarios for a role. Never raises."""
+    source: str  # "nemotron" | "static"
+
+    def generate(self, role: str) -> List[CanaryTask]: ...
+
+
+class StaticCanaryGenerator:
+    """Deterministic fallback: the frozen per-role probe."""
+    source = "static"
+
+    def generate(self, role: str) -> List[CanaryTask]:
+        return [CANARY_TASKS[role]]
+
+
+class NemotronCanaryGenerator:
+    """Nemotron invents diverse, adversarial probe scenarios per role.
+
+    The model only *writes scenarios*. Every scenario is judged by the
+    role's deterministic oracle from ORACLES -- the verdict path never
+    touches a model. Any failure (no key, bad JSON, transport error)
+    degrades silently to the static probe. Never raises.
+    """
+
+    def __init__(self, client=None, count: int = 3, config: dict = None,
+                 logger=None):
+        from .nemotron import NemotronClient
+        self._client = client or NemotronClient(config=config, logger=logger)
+        self.count = count
+        self._fallback = StaticCanaryGenerator()
+        self.logger = getattr(self._client, "logger", None)
+
+    @property
+    def source(self) -> str:
+        return "nemotron"
+
+    @property
+    def available(self) -> bool:
+        return self._client.available
+
+    def generate(self, role: str) -> List[CanaryTask]:
+        try:
+            return self._generate_inner(role)
+        except Exception as exc:  # noqa: BLE001 - probes must never break the layer
+            if self.logger is not None:
+                self.logger.log("canary_generation_failed", level="WARNING",
+                                role=role, error=str(exc))
+            return self._fallback.generate(role)
+
+    def _generate_inner(self, role: str) -> List[CanaryTask]:
+        text = self._client.chat([
+            {"role": "system",
+             "content": ("You design adversarial test scenarios for AI "
+                         "reliability engineering. Return ONLY a JSON array, "
+                         "no prose, no markdown fences.")},
+            {"role": "user", "content": self._prompt(role)},
+        ], temperature=0.7, max_tokens=800)
+        scenarios = _parse_scenarios(text)
+        tasks = []
+        for i, s in enumerate(scenarios[:self.count]):
+            incident = s.get("incident") or {}
+            ctx = {"incident": {"id": f"NEMOTRON-CANARY-{i + 1}", **incident}}
+            if s.get("diagnosis"):
+                ctx["diagnosis"] = s["diagnosis"]
+            tasks.append(CanaryTask(
+                name=str(s.get("name") or f"{role}-nemotron-canary-{i + 1}"),
+                role=role, synthetic_ctx=ctx, oracle=ORACLES[role]))
+        if not tasks:
+            raise ValueError("no parseable scenarios in model output")
+        return tasks
+
+    def _prompt(self, role: str) -> str:
+        return (
+            f"Generate {self.count} adversarial canary probe scenarios for "
+            f"testing whether the '{role}' agent in an incident-management "
+            "workflow is still functioning. Each scenario should be a synthetic "
+            "incident context cunningly designed to expose a degraded agent "
+            "(one whose LLM is down, or producing plausible-but-wrong output). "
+            "Vary services, symptoms, and severities.\n\n"
+            "Return ONLY a JSON array of objects with keys: "
+            '"name" (short id), "incident" (object with id/service/symptom/'
+            'severity), and optionally "diagnosis" (object). Example:\n'
+            '[{"name": "db-latency-spike", "incident": {"service": "orders-db", '
+            '"symptom": "p99 latency 8s", "severity": "P1"}}]'
+        )
+
+
+def _parse_scenarios(text: str) -> list:
+    """Extract a JSON array from model output, tolerating fences/prose."""
+    import json
+    import re
+    cleaned = text.strip()
+    m = re.search(r"```(?:json)?\s*(.*?)```", cleaned, re.S)
+    if m:
+        cleaned = m.group(1).strip()
+    start = cleaned.find("[")
+    end = cleaned.rfind("]")
+    if start == -1 or end == -1 or end <= start:
+        raise ValueError("no JSON array found in model output")
+    parsed = json.loads(cleaned[start:end + 1])
+    if not isinstance(parsed, list):
+        raise ValueError("model output is not a JSON array")
+    return parsed
+
+
+def default_canary_generator(config: dict = None) -> CanaryGenerator:
+    """Nemotron-generated probes when NEBIUS_API_KEY is set, static otherwise."""
+    gen = NemotronCanaryGenerator(config=config)
+    if gen.available:
+        return gen
+    return StaticCanaryGenerator()

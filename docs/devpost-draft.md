@@ -1,6 +1,14 @@
 # Devpost description (DRAFT)
 
-## Agent Continuity Layer — the undercover agent is always watching
+## Agent Continuity Layer — developer infrastructure for agentic engineering
+
+**The track claim.** This is the layer coding-agent teams deploy *under*
+their agents. The Coding and Agentic Engineering track is about agents that
+write, run, and test code — but every one of those agents can die the quiet
+death: process alive, role dead, pipeline still producing output nobody can
+trust. This project is the infrastructure that catches that failure, contains
+it, and keeps the workflow alive. Not another agent. The system under the
+agents.
 
 **The problem.** Multi-agent workflows fail in a way no monitor catches: an
 agent's process stays alive while its *role* stops functioning. The LLM stops
@@ -23,15 +31,65 @@ prevented → primary revalidated through recovery probes and rejoined at a new
 epoch. Metrics: time-to-semantic-failure-detection (TSFD), verified recovery
 time, affected-work recovery rate.
 
-**How it's built.** Python. Deterministic sentinel core — fully functional
-with zero model calls. Nemotron (via Nebius Token Factory) powers the
-optional diagnostician: role-specific probes and diagnostic hypotheses, never
-load-bearing for a continuity decision. Set `NEBIUS_API_KEY` to see
-Nemotron-generated notes in the forensic ledger.
+**How Nemotron is used (structural, not decorative).** Nemotron runs on
+Nebius Token Factory and does two jobs a deterministic layer cannot do for
+itself:
+1. **It writes the canary probes.** When `NEBIUS_API_KEY` is set, Nemotron
+   invents diverse, adversarial probe scenarios per role — tricky incidents
+   designed to expose a degraded agent. The *verdict* on every probe still
+   comes from the deterministic oracle; the model writes scenarios, the
+   oracle judges. No key → the frozen static probe runs instead.
+2. **It writes the forensic narrative.** After a failover, Nemotron drafts
+   the 2–3 sentence incident summary for the human reviewer from the failure
+   window and affected-work map — labeled `nemotron-narrative`, advisory
+   only, never consulted for a verdict.
+
+The governing principle is deliberate: *the verifier must be dumber than the
+verified.* Verdicts are deterministic so they can't inherit the failure modes
+they're meant to catch; Nemotron supplies the creativity (probes) and the
+prose (narratives) where a model genuinely adds value. Set `NEBIUS_API_KEY`
+and `demo.py` shows both live: `[nemotron] generated 3 canary probes…` in
+the timeline and the narrative in the $20K screen.
 
 **Try it.** `python3 demo.py --failure gray` — kill nothing, watch the layer
 catch a failure that looks healthy.
 
 ## Built with
-Nebius Token Factory (Nemotron inference for the diagnostician), NVIDIA
-Nemotron open models.
+Nebius Token Factory (Nemotron inference: canary-probe generation and
+forensic narratives), NVIDIA Nemotron open models
+(`nvidia/Nemotron-3.5-Super-VL` via the OpenAI-compatible
+`https://api.tokenfactory.nebius.com/v1` endpoint).
+
+## Feedback on Nebius Token Factory & NVIDIA tools — [DRAFT, fill gaps after key check]
+
+*(Devpost requires a feedback section. This is a draft built from the
+integration work; lines marked [FILL] need your key-check observations.)*
+
+**What worked well.**
+- The OpenAI-compatible chat-completions endpoint
+  (`https://api.tokenfactory.nebius.com/v1/chat/completions`) made
+  integration a plain HTTP POST — no new SDK to learn. The whole client
+  (retries, circuit breaker, env-var-only key handling) is ~100 lines of
+  `requests` code.
+- The model string `nvidia/Nemotron-3.5-Super-VL` was straightforward to
+  source from the Token Factory catalog. Registration + $25 Token Factory
+  credits covered the entire project's inference needs.
+- The platform's design actually shaped the architecture: because verdicts
+  are deterministic by design, model latency and response variance are
+  acceptable where the model works — probe generation and narratives, not
+  decisions. Token Factory sits exactly where a model adds value, and
+  nowhere it could do harm.
+
+**[FILL] Runtime observations from the key check (paste your notes):**
+- First-call latency on `nvidia/Nemotron-3.5-Super-VL` for the canary +
+  narrative prompts: ___ seconds.
+- Probe quality: did the generated canary scenarios look adversarial and
+  varied, or generic? ___
+- Narrative quality: did the 2–3 sentence forensic summary read like a real
+  reliability engineer's note? ___
+- Any friction during registration, credit redemption, or the first live
+  call: ___
+
+**Suggestion for Nebius.** A copy-paste "first call" curl snippet next to
+each model in the Token Factory catalog would shorten the gap between
+registering and the first verified response.

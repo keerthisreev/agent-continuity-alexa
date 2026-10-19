@@ -63,7 +63,19 @@ def run_scenario(failure: str, diagnostician):
     primaries["remediation"].alive = True
     primaries["remediation"].backend.mode = "healthy"
     rejoined = layer.attempt_rejoin("remediation")
-    return layer, store, inc1, inc2, rejoined
+
+    # Forensic narrative: written from the confirmed ledger, advisory only.
+    narrative = None
+    if diagnostician is not None:
+        try:
+            narrative = diagnostician.incident_narrative(layer.ledger.report())
+            layer.ledger.record(
+                "diagnostician_note",
+                {"agent": "remediation", "note": narrative,
+                 "narrative": True}, layer.clock.now())
+        except Exception:
+            narrative = None
+    return layer, store, inc1, inc2, rejoined, narrative
 
 
 def outside_view(failure: str, primaries) -> str | None:
@@ -86,7 +98,16 @@ def render_timeline(layer) -> list:
     lines = []
     for e in layer.ledger.timeline:
         k, d, t = e["kind"], e["detail"], e["tick"]
-        if k == "anomaly":
+        if k == "canary_probes_generated":
+            src = d["source"]
+            if src == "nemotron":
+                lines.append(f"{_t(t)}  [nemotron] generated {d['count']} canary "
+                             f"probes for role={d['role']} -- model writes "
+                             f"scenarios, deterministic oracle judges")
+            else:
+                lines.append(f"{_t(t)}  [static] {d['count']} deterministic canary "
+                             f"probe for role={d['role']} (no key set)")
+        elif k == "anomaly":
             lines.append(f"{_t(t)}  ROLE ANOMALY -- {d['violations'][0]}")
         elif k == "critical_violation":
             lines.append(f"{_t(t)}  BUSINESS INVARIANT VIOLATED -- {d['violations'][0]}")
@@ -121,7 +142,7 @@ def render_timeline(layer) -> list:
     return lines
 
 
-def render_money_screen(layer, inc1, inc2, rejoined: bool) -> list:
+def render_money_screen(layer, inc1, inc2, rejoined: bool, narrative) -> list:
     rep = layer.ledger.report()
     w = rep["failure_windows"][0]
     affected = rep["affected_work"]
@@ -151,6 +172,11 @@ def render_money_screen(layer, inc1, inc2, rejoined: bool) -> list:
     lines.append(f"recovery: {'primary rejoined at new epoch -- recovery complete'
                   if rejoined else 'REJOIN FAILED'}")
     lines.append("=" * 64)
+    if narrative:
+        lines.append("")
+        lines.append("FORENSIC NARRATIVE (advisory only -- never a verdict)")
+        lines.append(f"  {narrative}")
+        lines.append("=" * 64)
     return lines
 
 
@@ -174,10 +200,11 @@ def main() -> int:
         print("-" * 64)
         print(TITLES[failure])
         print("-" * 64)
-        layer, store, inc1, inc2, rejoined = run_scenario(failure, diagnostician)
+        layer, store, inc1, inc2, rejoined, narrative = run_scenario(
+            failure, diagnostician)
         for line in render_timeline(layer):
             print(line)
-        for line in render_money_screen(layer, inc1, inc2, rejoined):
+        for line in render_money_screen(layer, inc1, inc2, rejoined, narrative):
             print(line)
         print()
     return 0
