@@ -9,20 +9,33 @@ redacted. This is the first live check; the full demo comes later.
 """
 from __future__ import annotations
 
+import argparse
 import os
 import sys
 import time
 
 import requests
 
+from continuity.nemotron import live_enabled
+
 BASE_URL = "https://api.tokenfactory.nebius.com/v1"
 MODEL = "nvidia/Nemotron-3.5-Super-VL"
 
 
 def main() -> int:
+    ap = argparse.ArgumentParser(description="One-request Nebius smoke test")
+    ap.add_argument("--live", action="store_true",
+                    help="explicitly authorize this single live request")
+    args = ap.parse_args()
     api_key = os.environ.get("NEBIUS_API_KEY", "")
     if not api_key:
         print("smoke: NEBIUS_API_KEY is not set -- refusing to run", file=sys.stderr)
+        return 2
+    if not (args.live or live_enabled()):
+        # Explicit opt-in, like the rest of the codebase: the documented
+        # rule is CONTINUITY_LIVE=1 or --live. Keep the rule uniform.
+        print("smoke: refusing -- set CONTINUITY_LIVE=1 or pass --live to "
+              "authorize this single live request", file=sys.stderr)
         return 2
     payload = {
         "model": MODEL,
