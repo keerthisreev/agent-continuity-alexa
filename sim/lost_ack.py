@@ -109,6 +109,9 @@ class ContinuityGateway:
     The agent NEVER calls the provider and NEVER touches the journal. It
     calls gateway.execute(op). The gateway:
 
+      0. authorizes the caller's fencing generation against the live
+         fencing authority BEFORE any downstream side effect -- a stale
+         (rotated) generation is rejected before the provider is touched;
       1. records intent in the journal (idempotency key + FULL canonical
          operation fingerprint: service, op, target, params),
       2. calls the provider exactly once per unseen key,
@@ -120,20 +123,41 @@ class ContinuityGateway:
     record (a fresh SQLite read via reconcile) -- reconstructed from
     durable state, not from anyone's memory. The provider is never
     re-hit for a key it already honored.
+
+    Honest boundary: the fencing check runs BEFORE provider dispatch, but
+    check-then-act is not atomic against a real remote provider -- a
+    rotation landing between the check and the provider's execution could
+    still slip through. A production deployment needs the downstream
+    system to enforce fencing tokens (or the gateway to own the execution
+    boundary). Within this sim the provider is in-process; the store's
+    in-lock generation check remains the last line of defense for local
+    effect writes, and provider idempotency + journal reconciliation stay
+    separate protections -- fencing alone does not solve ack loss.
     """
 
     def __init__(self, provider: "SimulatedProvider",
                  journal: OperationJournal,
-                 fencing_generation: Optional[int] = None):
+                 fencing, role: str):
         self.provider = provider
         self.journal = journal
-        self.fencing_generation = fencing_generation
+        self.fencing = fencing
+        self.role = role
+        # The generation this gateway (and its agent) is authorized for,
+        # captured at construction. A later rotate() makes it stale.
+        self.fencing_generation = fencing.current(role)
 
     def execute(self, op: Dict[str, Any], lose_ack: bool = False,
                 ledger=None, tick=None) -> Dict[str, Any]:
         """Run one operation through the gateway. Returns a result dict;
         raises AcknowledgementLost (never returns a receipt) when the ack
-        is lost. `op` needs: op_id, key, service, op, target, params."""
+        is lost, or StaleEpochError when this gateway's generation has
+        been rotated since construction -- in both cases BEFORE the
+        provider records any effect. `op` needs: op_id, key, service, op,
+        target, params."""
+        # Authorize first: a fenced agent is rejected before it can cause
+        # a downstream side effect. The store checks again later, but by
+        # then a real provider would already have acted.
+        self.fencing.check(self.role, self.fencing_generation, tick)
         op_id, key = op["op_id"], op["key"]
         rec = self.journal.record_intent(
             op_id, key, service=op["service"], op=op["op"],
@@ -204,8 +228,8 @@ def run_protected_lost_ack(incident_id: str = "INC-1043",
     # The agent NEVER touches the provider or the journal directly: it
     # only ever holds what gateway.execute() returns to it.
     generation = layer.fencing.current("remediation")
-    gateway = ContinuityGateway(provider, journal,
-                                fencing_generation=generation)
+    gateway = ContinuityGateway(provider, journal, layer.fencing,
+                                "remediation")
     steps: List[Dict[str, Any]] = []
     for i, step in enumerate(USER_TASK_STEPS):
         op_id = f"{incident_id}:user_task:{i}:{step['name']}"
