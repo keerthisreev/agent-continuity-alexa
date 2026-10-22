@@ -137,7 +137,7 @@ the JSONL log path. Secrets come from the environment only
 | **C — gray semantic** | plausible but wrong: proposes a forbidden DB restart, no evidence | business-invariant violation → targeted canary → quarantine → failover; flagged for human review |
 
 `demo.py` runs each mode and prints the timestamped timeline plus the
-**$20K screen**: last-known-good → anomaly → canary fail → fenced epoch →
+**incident summary**: last-known-good → anomaly → canary fail → fenced epoch →
 standby activated → affected-work map (completed clean / replayed by
 standby / human review / duplicates prevented) → primary rejoin at a new
 epoch → recovery complete.
@@ -191,6 +191,53 @@ and the $20K screen renders the Nemotron-written forensic narrative. Without
 `--live`, everything runs fully deterministic on the stub (the demo prints
 the `[static]` fallback lines instead); no test touches the network.
 
+## MCP read-only interface
+
+`continuity/mcp_server.py` serves the forensic ledger over MCP (the
+`mcp` package, `pip install -r requirements.txt`), so any MCP-capable
+coding agent can ask "why did this workflow fail?" — no code changes on
+the agent side.
+
+Read-only by design: every tool reads from a forensic report dict (the
+schema from `ForensicLedger.export_dict()`). Nothing here writes to the
+ledger, changes a verdict, or triggers a standby. The narrative tool uses
+the deterministic stub diagnostician — no model, no network.
+
+Tools: `list_incidents`, `get_incident`, `get_affected_work`,
+`get_fencing_state`, `get_ledger_entries`, `get_incident_narrative`,
+`get_metrics`.
+
+```bash
+# serve the gray-failure demo world live
+python -m continuity.mcp_server --live
+
+# or export a forensic report first, then serve the file
+python -c "
+from test_continuity import make_world, incident, process_incident
+layer, store, primaries = make_world()
+process_incident(layer, store, primaries, incident('INC-1042'))
+primaries['remediation'].backend.mode = 'llm_down'
+process_incident(layer, store, primaries, incident('INC-1043'))
+layer.ledger.export_json('forensic.json')"
+python -m continuity.mcp_server --report forensic.json
+```
+
+Wire it into a coding agent's MCP config with the command
+`python -m continuity.mcp_server --live` (run from the repo root).
+
+## Scenario showcase
+
+The dashboard (`python dashboard/app.py`) has two views:
+
+- `/` — the live replay: role health, affected-work map, scrolling
+  timeline, animated while a demo world runs in the background.
+- `/showcase` — the scenario gallery: every example in the repo as a
+  named card (the three failure modes, the healthy run, the
+  no-duplicate-actions case). Pick one and it runs on demand, showing
+  the verdict, the affected-work map, and the forensic incident
+  narrative side by side. Same dark, video-readable styling as the
+  live view.
+
 ## Layout
 
 ```
@@ -207,14 +254,17 @@ continuity/             the continuity layer (the product)
   metrics.py            TSFD / TRV / AFR
   diagnostician.py      OPTIONAL Nemotron reasoning (advisory only)
   nemotron.py           shared Token Factory client (canary gen + narratives)
+  mcp_server.py         MCP read-only interface over the forensic ledger
   config.py             YAML + env config (defaults = brutal-proof behavior)
   log.py                structured JSONL logging with incident correlation ids
-dashboard/app.py        live video-readable dashboard (Flask)
+dashboard/app.py        live video-readable dashboard (Flask) + scenario showcase (/showcase)
 examples/wrap_existing.py  wrap a LangChain-style agent without modifying it
 store.py                the existing shared incident store (epoch-fenced writes)
 test_continuity.py      10 tests -- the brutal proof (frozen)
 test_robust.py           9 tests -- hardening (config, threads, export, dashboard, client)
-demo.py                 the 3-minute-video surface
+test_nemotron.py         9 tests -- Nemotron rework (platform fix, canary gen, narrative)
+test_mcp.py             11 tests -- MCP read-only interface
+test_showcase.py         6 tests -- dashboard scenario showcase
 docs/video-script.md    3-minute video choreography
 docs/devpost-draft.md   Devpost description draft
 ```
