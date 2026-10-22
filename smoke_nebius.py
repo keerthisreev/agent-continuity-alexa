@@ -1,7 +1,8 @@
 """One-request Nebius Token Factory smoke test. No layer, no demo, no retries.
 
 Usage:
-    NEBIUS_API_KEY=<key> python3 smoke_nebius.py
+    NEBIUS_API_KEY=<key> CONTINUITY_LIVE=1 python3 smoke_nebius.py
+    # or: NEBIUS_API_KEY=<key> python3 smoke_nebius.py --live
 
 Captures exactly one request: HTTP status, model returned, elapsed time,
 token usage, and the response text. Any error is printed with the key
