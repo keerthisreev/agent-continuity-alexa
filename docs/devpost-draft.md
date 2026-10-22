@@ -1,14 +1,16 @@
 # Devpost description (DRAFT)
 
-## Agent Continuity Layer — developer infrastructure for agentic engineering
+## Agent Continuity Layer — reliability infrastructure for AI agent workflows
 
-**The track claim.** This is the layer coding-agent teams deploy *under*
-their agents. The Coding and Agentic Engineering track is about agents that
-write, run, and test code — but every one of those agents can die the quiet
+**The track claim.** This is a workflow that runs itself — and keeps running
+correctly when its agents silently fail. Submitted under **Best Apps and
+Agents**: an operational reliability layer for multi-agent workflows,
+powered by Nemotron models on Nebius Token Factory. Every agent workflow —
+incident response, support automation, ops copilots — can die the quiet
 death: process alive, role dead, pipeline still producing output nobody can
-trust. This project is the infrastructure that catches that failure, contains
-it, and keeps the workflow alive. Not another agent. The system under the
-agents.
+trust. This project is the layer that catches that failure, contains it,
+transfers the work safely, and proves the workflow recovered. Not another
+agent. The system under the agents.
 
 **The problem.** Multi-agent workflows fail in a way no monitor catches: an
 agent's process stays alive while its *role* stops functioning. The LLM stops

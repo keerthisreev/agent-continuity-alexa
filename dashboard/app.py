@@ -251,15 +251,17 @@ SHOWCASE_SCENARIOS = {
 
 def run_showcase_scenario(name: str, diagnostician=None) -> dict:
     """Run one gallery scenario synchronously. Returns everything the
-    result page needs. diagnostician=None -> default (Nemotron when the
-    key is set, stub otherwise); tests pass the stub explicitly."""
+    result page needs. diagnostician=None -> default (Nemotron only with
+    explicit live opt-in via CONTINUITY_LIVE=1 + key, stub otherwise);
+    tests pass the stub explicitly."""
     from continuity import metrics as m
     from continuity.diagnostician import default_diagnostician
+    from continuity.nemotron import live_enabled
 
     spec = SHOWCASE_SCENARIOS[name]
     layer = spec["runner"]()
     report = layer.ledger.report()
-    diag = diagnostician or default_diagnostician()
+    diag = diagnostician or default_diagnostician(live=live_enabled())
     narrative = diag.incident_narrative(report)
     verdict = layer.sentinel.state_of("remediation")
     timeline = [
@@ -465,10 +467,14 @@ def _demo_world():
     from continuity.checkpoint import STATE_ADAPTERS
     from continuity.contracts import CONTRACTS
     from continuity.diagnostician import default_diagnostician
+    from continuity.nemotron import live_enabled
     from continuity.standby import StandbyController
     from store import IncidentStore
 
-    layer = ContinuityLayer(diagnostician=default_diagnostician())
+    # Offline unless CONTINUITY_LIVE=1 is explicitly set (credit safety:
+    # key presence alone never enables network calls).
+    layer = ContinuityLayer(diagnostician=default_diagnostician(
+        live=live_enabled()))
     store = IncidentStore(layer.fencing, layer.ledger)
     primaries = {
         "triage": TriageAgent(),

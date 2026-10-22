@@ -11,6 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Protocol
 
+from .nemotron import live_enabled
+
 
 @dataclass
 class CanaryResult:
@@ -218,9 +220,16 @@ def _parse_scenarios(text: str) -> list:
     return parsed
 
 
-def default_canary_generator(config: dict = None) -> CanaryGenerator:
-    """Nemotron-generated probes when NEBIUS_API_KEY is set, static otherwise."""
-    gen = NemotronCanaryGenerator(config=config)
-    if gen.available:
-        return gen
+def default_canary_generator(config: dict = None,
+                            live: bool | None = None) -> CanaryGenerator:
+    """Static probes unless live mode is EXPLICITLY enabled and the key is set.
+
+    Credit-safety rule: the mere presence of NEBIUS_API_KEY never enables
+    network calls. Pass live=True or set CONTINUITY_LIVE=1 for the Nemotron
+    path (used by demo.py --live and the controlled live test only).
+    """
+    if live_enabled(live):
+        gen = NemotronCanaryGenerator(config=config)
+        if gen.available:
+            return gen
     return StaticCanaryGenerator()

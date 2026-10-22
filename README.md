@@ -82,7 +82,7 @@ python3 examples/wrap_existing.py   # wrap YOUR agent shape without touching it
 
 **Docker:**
 ```bash
-cp .env.example .env   # add NEBIUS_API_KEY for the live Nemotron beat (optional)
+cp .env.example .env   # add NEBIUS_API_KEY + CONTINUITY_LIVE=1 for the live Nemotron beat (optional)
 docker compose up      # dashboard on :5000 + the terminal demo
 ```
 
@@ -163,15 +163,21 @@ the Nebius Token Factory OpenAI-compatible chat-completions endpoint
 (`https://api.tokenfactory.nebius.com/v1/chat/completions`, default model
 `nvidia/Nemotron-3.5-Super-VL`, overridable in `continuity.yaml`):
 
-1. **Canary generation** (`continuity/canary.py`): when **`NEBIUS_API_KEY`**
-   is set, `NemotronCanaryGenerator` invents diverse, adversarial probe
+1. **Canary generation** (`continuity/canary.py`): with explicit live
+   opt-in (`demo.py --live` or `CONTINUITY_LIVE=1`) **and** `NEBIUS_API_KEY`
+   set, `NemotronCanaryGenerator` invents diverse, adversarial probe
    scenarios per role. The deterministic `CanaryOracle` still judges every
-   probe — the model writes scenarios, the oracle judges. No key → the
+   probe — the model writes scenarios, the oracle judges. Otherwise → the
    frozen static probe.
 2. **Forensic narrative** (`continuity/diagnostician.py`): after a failover,
    Nemotron drafts the 2–3 sentence incident summary from the failure window
    + affected-work map. Labeled `nemotron-narrative`, advisory only, never
    consulted for a verdict.
+
+**Credit safety:** key presence alone never enables network calls — not in
+tests, not in the demo, not in the dashboard. Live calls happen only with
+explicit opt-in (`--live` / `CONTINUITY_LIVE=1`) plus the key. Run the suite
+with a key exported and it still makes zero network calls (verified by test).
 
 Production behavior: 20s timeout, 2 retries with exponential backoff,
 circuit breaker (3 consecutive failures → 60s open → silent stub fallback).
@@ -179,10 +185,10 @@ The client **never** raises into the sentinel path and **never** changes a
 verdict — the governing principle is that the verifier must be dumber than
 the verified.
 
-**What the video must show:** run `demo.py` with `NEBIUS_API_KEY` set — the
+**What the video must show:** run `demo.py --live` with `NEBIUS_API_KEY` set — the
 timeline prints `[nemotron] generated 3 canary probes for role=remediation`
 and the incident summary shows the Nemotron-written forensic narrative. Without
-the key, everything runs fully deterministic on the stub (the demo prints
+`--live`, everything runs fully deterministic on the stub (the demo prints
 the `[static]` fallback lines instead); no test touches the network.
 
 ## MCP read-only interface

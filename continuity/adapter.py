@@ -26,6 +26,7 @@ from .diagnostician import Diagnostician
 from .fencing import FencingAuthority, StaleEpochError
 from .ledger import ForensicLedger
 from .log import ContinuityLogger
+from .nemotron import live_enabled
 from .sentinel import (FAILOVER, HEALTHY, RECOVERING, REJOIN, Sentinel)
 
 
@@ -48,7 +49,10 @@ class Clock:
 
 class ContinuityLayer:
     def __init__(self, diagnostician: Diagnostician = None, config: dict = None,
-                 canary_generator=None):
+                 canary_generator=None, live: bool | None = None):
+        # Credit-safety: live Nebius calls require explicit opt-in
+        # (live=True or CONTINUITY_LIVE=1). Key presence alone never suffices.
+        self.live = live_enabled(live)
         self.config = config if config is not None else CONFIG
         self.logger = ContinuityLogger(
             path=_cfg_get(self.config, "logging", "path", default=None))
@@ -58,11 +62,12 @@ class ContinuityLayer:
             logger=self.logger)
         self.ledger = ForensicLedger(self.clock, logger=self.logger)
         self.canary_runner = CanaryRunner()
-        # Who writes the probes: Nemotron when NEBIUS_API_KEY is set
+        # Who writes the probes: Nemotron only with explicit live opt-in
         # (scenarios only), the frozen static probe otherwise. Whoever
         # writes them, the deterministic oracle judges them.
         self.canary_generator = (canary_generator
-                                 or default_canary_generator(self.config))
+                                 or default_canary_generator(self.config,
+                                                             live=self.live))
         self.sentinel = Sentinel(
             fencing=self.fencing, ledger=self.ledger,
             canary_runner=self.canary_runner, clock=self.clock,
