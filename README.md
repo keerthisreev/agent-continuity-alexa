@@ -78,7 +78,7 @@ python3 test_nemotron.py     # 12/12: Nemotron seam, offline-safe
 python3 test_mcp.py          # 11/11: MCP read-only ledger
 python3 test_showcase.py     #  7/7: dashboard scenario gallery
 python3 test_sim.py          # 17/17: Alexa+ sim (initiate -> interrupt -> resume)
-python3 test_journal.py      # 11/11: operation journal + lost-ack scenario
+python3 test_journal.py      # 14/14: operation journal + gateway + lost-ack scenario
 python3 demo.py              # the story, zero narration
 python3 demo.py --failure gray
 python3 dashboard/app.py     # live dashboard -> http://127.0.0.1:5000/
@@ -88,15 +88,15 @@ python3 examples/wrap_existing.py   # wrap YOUR agent shape without touching it
 Run everything at once:
 ```bash
 for t in test_continuity test_robust test_nemotron test_mcp test_showcase test_sim test_journal; do python3 $t.py; done
-# expected: 80/80 green, zero network calls, no API keys required
+# expected: 83/83 green, zero network calls, no API keys required
 ```
 
-**Alexa+ track submission (simulated Alexa+ experience, this repo's `alexa-plus-sim` branch):**
+**Alexa+ track submission (simulated Alexa+ experience, this repo's `main` branch):**
 ```bash
 python3 dashboard/app.py     # -> http://127.0.0.1:5000/sim  (chat: initiate -> "inject a gray failure" -> "continue" -> "what happened?")
 python3 -m sim.ablation --failure gray --incident INC-1043   # baseline vs protected, side-by-side from real runs
 python3 -m sim.ablation --failure lost_ack --incident INC-1043  # commit-aware recovery: the ack is lost after commit
-python3 test_sim.py          # 16/16: the sim's own proof
+python3 test_sim.py          # 17/17: the sim's own proof
 ```
 No API keys, no network — everything above runs fully offline and deterministic.
 
@@ -109,8 +109,12 @@ every field read off the journal + forensic ledger, never hard-coded; JSON at
 `GET /sim/api/receipt/<incident_id>`). The engine underneath is
 `continuity/journal.py`: a SQLite operation journal (WAL, explicit commits,
 crash-safe) with reconcile-before-retry discipline — same idempotency key +
-same payload reuses the committed receipt; same key + different payload is a
-loud conflict, never a silent reuse.
+same full operation (service, op, target, params) reuses the committed
+receipt; same key + a different operation, or a key shared across operations,
+is a loud conflict, never a silent reuse. A `ContinuityGateway`
+(`sim/lost_ack.py`) separates the agent from the provider and the journal:
+it persists the receipt *before* the ack goes out, so on ack loss the agent
+provably never holds the original — the retry reconstructs it from SQLite.
 
 Honesty boundary: the journal provides reconcile-before-retry *discipline*,
 not a magic exactly-once guarantee. Exactly-once against an arbitrary external
