@@ -75,24 +75,26 @@ PAGE = """<!doctype html>
 const scen = new URLSearchParams(location.search).get('scenario') || 'gray';
 document.getElementById('scen').textContent = scen;
 const COLORS = __COLORS__;
+// Summaries can carry agent/diagnostic text: never interpolate raw HTML.
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function tick(){
   fetch('/api/health').then(r=>r.json()).then(h=>{
     document.getElementById('roles').innerHTML =
       Object.entries(h.roles).map(([role,state]) =>
-        `<span class="role">${role}<br><span class="badge" style="background:${COLORS[state]||'#888'}">${state}</span></span>`
+        `<span class="role">${esc(role)}<br><span class="badge" style="background:${COLORS[state]||'#888'}">${esc(state)}</span></span>`
       ).join('');
   });
   fetch('/api/timeline?limit=60').then(r=>r.json()).then(t=>{
     document.getElementById('timeline').innerHTML =
       t.events.slice().reverse().map(e =>
-        `<div><span class="tick">t+${String(e.tick).padStart(4,'0')}</span> <b>${e.kind}</b> ${e.summary||''}</div>`
+        `<div><span class="tick">t+${String(e.tick).padStart(4,'0')}</span> <b>${esc(e.kind)}</b> ${esc(e.summary||'')}</div>`
       ).join('');
   });
   fetch('/api/affected').then(r=>r.json()).then(a=>{
     const rows = Object.entries(a.affected_work);
     document.getElementById('affected').innerHTML = rows.length
       ? '<table><tr><th>incident</th><th>disposition</th></tr>' +
-        rows.map(([i,d])=>`<tr><td>${i}</td><td>${d}</td></tr>`).join('') + '</table>'
+        rows.map(([i,d])=>`<tr><td>${esc(i)}</td><td>${esc(d)}</td></tr>`).join('') + '</table>'
       : '<span class="tick">no incidents yet</span>';
   });
 }
@@ -413,6 +415,11 @@ SIM_PAGE = """<!doctype html>
   .reportbox { background:#161b22; border:1px solid #58a6ff; border-radius:8px; padding:12px;
                margin:10px 40px 10px 0; }
   .reportbox h3 { margin:0 0 10px; color:#58a6ff; font-size:16px; }
+  .receipt { background:#0d1117; border:1px solid #2ecc71; border-radius:8px;
+             padding:12px; margin-top:12px; }
+  .receipt h4 { margin:0 0 10px; color:#2ecc71; font-size:15px; }
+  .receipt .kvrow { display:grid; grid-template-columns:180px 1fr; gap:8px;
+                    padding:5px 0; border-bottom:1px solid #21262d; line-height:1.6; }
   .buckets { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:10px; }
   .bucket { border-radius:6px; padding:10px 12px; }
   .bucket h4 { margin:0 0 8px; font-size:13px; text-transform:uppercase; letter-spacing:1px; }
@@ -458,6 +465,18 @@ is the real continuity engine, driven with zero mocks.</div>
 <li>"Run the ablation." — workflow alone vs workflow + layer, from real runs.</li>
 </ol>
 <div class="tick">Three fault scenarios: gray semantic violation · silent dependency failure · stale write from a fenced agent. Each states its enforced invariant up front — never generalized AI-failure detection.</div></div>
+<div class="guide"><h2>Break-it challenge — three faults, baseline vs layer, with receipt</h2>
+<ol>
+<li><b>A · Lose the acknowledgement</b> — the ride provider commits the booking, but the ack never arrives. Does the retry book twice?</li>
+<li><b>B · Propose an unsafe action</b> — the compromised agent proposes <i>restart:database</i>. The workflow alone executes it; the layer blocks it.</li>
+<li><b>C · Stale write after failover</b> — the fenced primary retries with its revoked generation. The store rejects it.</li>
+</ol>
+<div class="chips">
+  <span class="chip" data-challenge="lost_ack">A · lose the acknowledgement</span>
+  <span class="chip" data-challenge="unsafe">B · propose an unsafe action</span>
+  <span class="chip" data-challenge="stale_write">C · stale write after failover</span>
+</div>
+<div class="tick">Deterministic, preconfigured faults — never generalized AI-failure detection. Times in ticks, not seconds. Each challenge ends with a recovery receipt built from the journal + ledger.</div></div>
 <div id="chat"></div>
 <div class="chips">
   <span class="chip" data-q="Investigate incident INC-1043 and prepare a remediation plan. Don't execute an unsafe action.">investigate INC-1043</span>
@@ -508,7 +527,15 @@ function send(text){
 }
 document.getElementById('send').onclick = ()=>send();
 document.getElementById('q').addEventListener('keydown', e=>{ if(e.key==='Enter') send(); });
-document.querySelectorAll('.chip').forEach(c=>{ c.onclick = ()=>send(c.dataset.q); });
+document.querySelectorAll('.chip').forEach(c=>{ if(!c.dataset.challenge) c.onclick = ()=>send(c.dataset.q); });
+document.querySelectorAll('[data-challenge]').forEach(c=>{ c.onclick = ()=>runChallenge(c.dataset.challenge); });
+function runChallenge(scenario){
+  addRaw('<div class="msg bot">Running the challenge against the real engine…</div>');
+  fetch('/sim/api/challenge', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({scenario: scenario})
+  }).then(r=>r.json()).then(d=>{ addRaw(d.html); });
+}
 addBot(md("Hi — I'm a **simulated** conversational front-end for the Agent Continuity Layer, a **reliability layer for agent workflows**. Give me an incident to investigate, e.g. **\\"Investigate incident INC-1043 and prepare a remediation plan.\\"**"));
 </script></body></html>
 """
@@ -524,6 +551,40 @@ def _sim_md(text: str) -> str:
     return _re.sub(r"\*\*([^*]+)\*\*",
                    lambda m: "<b>" + _sim_escape(m.group(1)) + "</b>",
                    _sim_escape(text))
+
+
+def _render_receipt(receipt: dict) -> str:
+    """Render the recovery receipt card. Every value was read off the
+    journal/ledger by sim/receipt.py -- this only formats."""
+    import json as _json
+
+    def _v(value):
+        if isinstance(value, str):
+            return _sim_escape(value)
+        return _sim_escape(_json.dumps(value, default=str))
+
+    op_rows = "".join(
+        f'<tr><td class="kv"><b>{_sim_escape(op["label"])}</b><br>{_sim_escape(op["op_id"])}</td>'
+        f'<td>{_v(op["effect_receipt"])}</td>'
+        f'<td>{_sim_escape(op["retry_decision"])}<br><span class="tick">{_sim_escape(op["decision_source"])}</span></td>'
+        f'<td>{_sim_escape(op["recovery_result"])}</td></tr>'
+        for op in receipt["operations"])
+    glob = "".join(
+        f'<div class="kvrow"><span class="kv">{_sim_escape(k)}</span>'
+        f'<span>{_v(v)}</span></div>'
+        for k, v in (("checkpoint", receipt["checkpoint"]),
+                     ("fencing", receipt["fencing"]),
+                     ("final state", receipt["final_state"])))
+    return (
+        '<div class="receipt"><h4>Recovery receipt '
+        f'— incident {_sim_escape(receipt["incident_id"])}</h4>'
+        '<div class="tick" style="margin-bottom:8px">Proof of recovery, from '
+        'the journal + forensic ledger — not a success message. '
+        f'<a style="color:#58a6ff" href="/sim/api/receipt/{_sim_escape(receipt["incident_id"])}" '
+        'target="_blank">JSON export</a></div>'
+        '<table class="cmp"><tr><th>operation</th><th>effect receipt</th>'
+        '<th>retry decision</th><th>recovery result</th></tr>'
+        + op_rows + '</table>' + glob + '</div>')
 
 
 def _render_sim_message(msg: dict) -> str:
@@ -621,11 +682,33 @@ def _render_sim_message(msg: dict) -> str:
             '<th>Workflow + layer</th></tr>' + rows + '</table>'
             f'<pre class="score">{_sim_escape(chr(10).join(_render_scorecard_text(c["scorecard"])))}</pre>'
             '</div>')
+    if kind == "challenge":
+        c = msg["comparison"]
+        rows = "".join(
+            f'<tr><td class="kv"><b>{_sim_escape(r["aspect"])}</b></td>'
+            f'<td>{_sim_escape(r["baseline"])}</td>'
+            f'<td>{_sim_escape(r["protected"])}</td></tr>'
+            for r in c["rows"])
+        return (
+            '<div class="reportbox"><h3>'
+            f'{_sim_escape(msg.get("title", "Break-it challenge"))}</h3>'
+            f'<div class="tick" style="margin-bottom:8px">incident {c["incident_id"]} · '
+            f'failure {c["failure"]} (deterministic, preconfigured scripted fault) · '
+            'same steps both sides — the only difference is the layer.</div>'
+            '<table class="cmp"><tr><th></th><th>Workflow alone</th>'
+            '<th>Workflow + layer</th></tr>' + rows + '</table>'
+            f'<pre class="score">{_sim_escape(chr(10).join(_render_scorecard_text(c["scorecard"])))}</pre>'
+            + _render_receipt(msg["receipt"]) +
+            '</div>')
     return f'<div class="msg bot">{_sim_escape(str(msg))}</div>'
 
 
 _SIM_SESSIONS: dict = {}
 _SIM_SESSION_CAP = 128
+
+# Receipts from break-it challenges, keyed by incident id, backing
+# GET /sim/api/receipt/<incident_id>. Populated only by real runs.
+_CHALLENGE_RECEIPTS: dict = {}
 
 
 def _sim_get_session(session_id):
@@ -751,6 +834,32 @@ def create_app(layer=None, scenario: str = "gray", step_delay: float = 0.6,
                           "html": _render_sim_message(m),
                           "text": m.get("text", "")} for m in outgoing],
         })
+
+    @app.post("/sim/api/challenge")
+    def sim_challenge():
+        from sim.ablation import run_challenge
+        data = request.get_json(force=True) or {}
+        scenario = data.get("scenario")
+        try:
+            result = run_challenge(scenario)
+        except Exception as exc:  # noqa: BLE001 - the sim must never 500
+            return jsonify({"html":
+                            f'<div class="msg bot">Challenge failed: '
+                            f'{_sim_escape(str(exc))}</div>'})
+        _CHALLENGE_RECEIPTS[result["incident_id"]] = result["receipt"]
+        while len(_CHALLENGE_RECEIPTS) > _SIM_SESSION_CAP:
+            _CHALLENGE_RECEIPTS.pop(next(iter(_CHALLENGE_RECEIPTS)))
+        html = _render_sim_message({"kind": "challenge", **result})
+        return jsonify({"html": html,
+                        "incident_id": result["incident_id"]})
+
+    @app.get("/sim/api/receipt/<incident_id>")
+    def sim_receipt(incident_id):
+        receipt = _CHALLENGE_RECEIPTS.get(incident_id)
+        if receipt is None:
+            return jsonify({"error": "no receipt for incident",
+                            "incident_id": incident_id}), 404
+        return jsonify(receipt)
 
     return app
 

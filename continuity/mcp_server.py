@@ -34,6 +34,21 @@ REPORT_SCHEMA = "agent-continuity/forensic-report@1"
 ENTRY_LIMIT_CAP = 200
 
 
+def _belongs_to_incident(entry: dict, incident_id: str) -> bool:
+    """Does this timeline entry belong to the incident?
+
+    Most entries carry detail.incident; failover entries (e.g.
+    standby_activated) carry detail.resumed_from_incident instead --
+    without this, per-incident evidence would silently drop the
+    recovery itself.
+    """
+    detail = entry.get("detail")
+    if not isinstance(detail, dict):
+        return False
+    return (detail.get("incident") == incident_id
+            or detail.get("resumed_from_incident") == incident_id)
+
+
 class LedgerView:
     """Read-only view over a forensic report dict. No writes, ever."""
 
@@ -56,8 +71,7 @@ class LedgerView:
         stages = [s for s in (self._report.get("stage_records") or [])
                   if s.get("incident") == incident_id]
         timeline = [e for e in (self._report.get("timeline") or [])
-                    if isinstance(e.get("detail"), dict)
-                    and e["detail"].get("incident") == incident_id]
+                    if _belongs_to_incident(e, incident_id)]
         flags = [h for h in (self._report.get("human_review") or [])
                  if h.get("incident") == incident_id]
         return {
