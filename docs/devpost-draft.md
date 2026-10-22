@@ -36,7 +36,9 @@ time, affected-work recovery rate.
 **How Nemotron is used (structural, not decorative).** Nemotron runs on
 Nebius Token Factory and does two jobs a deterministic layer cannot do for
 itself:
-1. **It writes the canary probes.** When `NEBIUS_API_KEY` is set, Nemotron
+1. **It writes the canary probes.** With `NEBIUS_API_KEY` set *and* explicit
+   live opt-in (`demo.py --live` or `CONTINUITY_LIVE=1` — the key alone
+   never enables network calls), Nemotron
    invents diverse, adversarial probe scenarios per role — tricky incidents
    designed to expose a degraded agent. The *verdict* on every probe still
    comes from the deterministic oracle; the model writes scenarios, the
@@ -50,7 +52,7 @@ The governing principle is deliberate: *the verifier must be dumber than the
 verified.* Verdicts are deterministic so they can't inherit the failure modes
 they're meant to catch; Nemotron supplies the creativity (probes) and the
 prose (narratives) where a model genuinely adds value. Set `NEBIUS_API_KEY`
-and `demo.py` shows both live: `[nemotron] generated 3 canary probes…` in
+and run `demo.py --live` (explicit opt-in required) to see both live: `[nemotron] generated 3 canary probes…` in
 the timeline and the narrative in the evidence screen.
 
 **Try it.** `python3 demo.py --failure gray` — kill nothing, watch the layer

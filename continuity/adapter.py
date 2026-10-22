@@ -134,6 +134,12 @@ class ContinuityLayer:
     # -- invocation ----------------------------------------------------------
     @staticmethod
     def _action_id(incident_id: str, role: str, index: int, action: dict) -> str:
+        # Idempotency identity: WHAT was planned, not HOW. Params are
+        # deliberately excluded: the checkpoint package is the authority on
+        # what was planned, and the standby replays the package's plan, so a
+        # replay proposing the same action with different params is treated
+        # as the same effect and skipped. If a future integration needs
+        # param-level identity, extend this one function -- it owns the format.
         return f"{incident_id}:{role}:{index}:{action.get('kind')}:{action.get('target')}"
 
     def invoke(self, agent_id: str, ctx: dict, agent_fn):

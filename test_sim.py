@@ -251,6 +251,22 @@ def test_nlu_fence_test_intent():
     print("PASS nlu: fence_test intent")
 
 
+def test_incident_timeline_includes_failover_evidence():
+    # The per-incident timeline must not silently drop the recovery:
+    # standby_activated carries resumed_from_incident (not incident), so
+    # the view matches on both.
+    from continuity.mcp_server import LedgerView
+    s = SimSession()
+    s.handle("Investigate incident INC-1043 and prepare a remediation plan.")
+    s.handle("inject a gray failure")
+    s.handle("continue")
+    view = LedgerView(s.layer.ledger.export_dict())
+    kinds = [e["kind"]
+             for e in view.get_incident("INC-1043")["timeline_entries"]]
+    assert "standby_activated" in kinds, f"failover evidence dropped: {kinds}"
+    print("PASS incident view: standby_activated present in incident timeline")
+
+
 def test_chat_ablation_message():
     s = SimSession()
     msgs = s.handle("run the ablation")
@@ -301,6 +317,7 @@ TESTS = [test_nlu_conversational_prompt_shape,
          test_nlu_fence_test_intent,
          test_chat_ablation_message,
          test_ablation_silent_failure,
+         test_incident_timeline_includes_failover_evidence,
          test_no_banned_language_in_new_files]
 
 
