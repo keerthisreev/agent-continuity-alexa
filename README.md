@@ -187,7 +187,7 @@ the verified.
 
 **What the video must show:** run `demo.py --live` with `NEBIUS_API_KEY` set — the
 timeline prints `[nemotron] generated 3 canary probes for role=remediation`
-and the $20K screen renders the Nemotron-written forensic narrative. Without
+and the evidence screen renders the Nemotron-written forensic narrative. Without
 `--live`, everything runs fully deterministic on the stub (the demo prints
 the `[static]` fallback lines instead); no test touches the network.
 

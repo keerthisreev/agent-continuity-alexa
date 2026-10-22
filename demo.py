@@ -2,7 +2,7 @@
 """Agent Continuity Layer -- brutal proof, demo-readable.
 
 Runs the full scenario (all three failure modes + recovery/rejoin) and
-prints a timestamped timeline plus the $20K screen. The output tells the
+prints a timestamped timeline plus the evidence screen. The output tells the
 story with zero narration.
 
     python3 demo.py [--failure hard|silent|gray|all] [--diagnostician auto|none|stub]
@@ -164,7 +164,7 @@ def render_money_screen(layer, inc1, inc2, rejoined: bool, narrative) -> list:
     lines = []
     lines.append("")
     lines.append("=" * 64)
-    lines.append("THE $20K SCREEN")
+    lines.append("THE EVIDENCE SCREEN")
     lines.append("=" * 64)
     lines.append(f"last known good ......... {resumed_s}")
     lines.append(f"failure detected ........ t+{w['failover_tick']:04d} "

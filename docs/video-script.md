@@ -31,7 +31,7 @@ Show the terminal:
 Narration: "The container is alive. The heartbeat is alive. The role is dead.
 The undercover agent caught what monitoring never could."
 
-## 1:30–2:00 — The $20K screen
+## 1:30–2:00 — The evidence screen
 
 Freeze on the affected-work output:
 - failure window timestamps, TSFD
@@ -55,7 +55,7 @@ write authority DENIED until revalidated → rejoined at new epoch.
   Factory: it *writes the canary probes* (show the `[nemotron] generated 3
   canary probes for role=remediation` timeline lines — the model invents the
   scenarios, the deterministic oracle judges them) and it *writes the
-  forensic narrative* (show the FORENSIC NARRATIVE block in the $20K screen).
+  forensic narrative* (show the FORENSIC NARRATIVE block in the evidence screen).
 - Narration: "The verdicts are deterministic — the model can't inherit the
   failures it's meant to catch. But Nemotron writes the probes that hunt the
   failure, and the incident report the human reads. That's the model where it

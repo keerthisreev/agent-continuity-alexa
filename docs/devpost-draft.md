@@ -51,7 +51,7 @@ verified.* Verdicts are deterministic so they can't inherit the failure modes
 they're meant to catch; Nemotron supplies the creativity (probes) and the
 prose (narratives) where a model genuinely adds value. Set `NEBIUS_API_KEY`
 and `demo.py` shows both live: `[nemotron] generated 3 canary probes…` in
-the timeline and the narrative in the $20K screen.
+the timeline and the narrative in the evidence screen.
 
 **Try it.** `python3 demo.py --failure gray` — kill nothing, watch the layer
 catch a failure that looks healthy.
