@@ -50,7 +50,10 @@ def test_get_incident_detail():
     assert d["found"] is True
     assert d["disposition"] == "replayed by standby"
     assert d["stage_records"], "no stage records for INC-1043"
-    assert any(e["kind"] == "failover" for e in d["timeline_entries"]) or True
+    outcomes = [s["outcome"] for s in d["stage_records"]
+                if s["stage"] == "remediation"]
+    assert "bad_output" in outcomes and "standby" in outcomes, (
+        f"remediation should show bad_output then standby, got {outcomes}")
     print("PASS mcp get_incident: stage records + disposition for INC-1043")
 
 

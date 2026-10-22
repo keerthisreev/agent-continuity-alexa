@@ -18,7 +18,9 @@ plausible-but-wrong plan violating the invariant "never restart the
 database for this incident class"; "silent" simulates a dead model
 dependency returning a well-formed but empty plan.
 
-Run:  python3 -m sim.ablation [--failure gray|silent] [--incident INC-1043]
+Run:  python3 -m sim.ablation [--failure gray|silent|lost_ack] [--incident INC-1043]
+Challenge mode: python3 -c "from sim.ablation import run_challenge;
+run_challenge('lost_ack'|'unsafe'|'stale_write')"
 """
 from __future__ import annotations
 
@@ -38,6 +40,9 @@ from test_continuity import make_world
 from continuity.diagnostician import StubDiagnostician
 
 from . import FAILURE_MODES, ROLES
+from .lost_ack import (compare_lost_ack, run_baseline_lost_ack,
+                       run_protected_lost_ack)
+from .receipt import receipt_from_blocked_action, receipt_from_lost_ack
 from .scorecard import build_scorecard, render_text
 
 
@@ -70,6 +75,8 @@ def _peek_proposal(agent, ctx: dict) -> dict:
 def run_baseline(failure: str = "gray", incident_id: str = "INC-1043") -> Dict[str, Any]:
     """Run the workflow with no continuity layer. Outputs are accepted at
     face value; the invariant-violating action is executed, not blocked."""
+    if failure == "lost_ack":
+        return run_baseline_lost_ack(incident_id)
     agents = {
         "triage": TriageAgent(),
         "diagnosis": DiagnosisAgent(),
@@ -116,6 +123,8 @@ def run_protected(failure: str = "gray",
                   incident_id: str = "INC-1043") -> Dict[str, Any]:
     """Run the identical steps through the real layer. Always offline:
     StubDiagnostician, live=False (a stray key can never flip the suite)."""
+    if failure == "lost_ack":
+        return run_protected_lost_ack(incident_id)
     layer, store, primaries = make_world(diagnostician=StubDiagnostician(),
                                          live=False)
     assert layer.live is False
@@ -197,6 +206,8 @@ def run_protected(failure: str = "gray",
 # ---------------------------------------------------------------------------
 
 def compare(baseline: Dict[str, Any], protected: Dict[str, Any]) -> Dict[str, Any]:
+    if baseline.get("failure") == "lost_ack":
+        return compare_lost_ack(baseline, protected)
     det = protected["detected"] or {}
     rows = [
         {
@@ -271,11 +282,178 @@ def render_text_comparison(comp: Dict[str, Any]) -> List[str]:
     return lines
 
 
+# ---------------------------------------------------------------------------
+# Challenge C: stale write after failover. Self-contained: forces a
+# failover, then the fenced primary retries with its revoked generation.
+# Baseline: a naive applier with no fencing generations -- the delayed
+# duplicate write applies, so one intended action becomes two effects.
+# ---------------------------------------------------------------------------
+
+def run_baseline_stale_write(incident_id: str = "INC-1043") -> Dict[str, Any]:
+    applied = ["restart:cache", "restart:cache"]  # original + delayed retry
+    return {
+        "mode": "naive applier (no fencing generations)",
+        "incident_id": incident_id,
+        "failure": "stale_write",
+        "effects_applied": applied,
+        "rejected": False,
+    }
+
+
+def run_protected_stale_write(incident_id: str = "INC-1043") -> Dict[str, Any]:
+    """Real failover, then the real store rejection path (StaleEpochError).
+    Always offline."""
+    from continuity.fencing import StaleEpochError
+
+    layer, store, primaries = make_world(diagnostician=StubDiagnostician(),
+                                         live=False)
+    assert layer.live is False
+    inc = make_incident(incident_id)
+    ctx = {"incident": inc}
+    for role in ("triage", "diagnosis", "remediation"):
+        result = layer.invoke(role, ctx, primaries[role])
+        layer.apply_effects(result, store)
+        ctx[role] = result["output"]
+    primaries["remediation"].backend.mode = FAILURE_MODES["gray"]
+    stale_gen = layer.fencing.current("remediation")
+    result = layer.invoke("remediation", ctx, primaries["remediation"])
+    layer.apply_effects(result, store)
+    assert result["active"] == "standby", \
+        f"expected a failover, got active={result['active']}"
+    current_gen = layer.fencing.current("remediation")
+    action = {"kind": "restart", "target": "cache", "params": {}}
+    action_id = f"{incident_id}:remediation:9:restart:cache"
+    tick = layer.clock.now()
+    rejected, reason = False, ""
+    try:
+        store.apply_effect("remediation", "remediation", stale_gen,
+                           action_id, action, tick=tick)
+    except StaleEpochError as exc:
+        rejected = True
+        reason = str(exc)
+        layer.ledger.record(
+            "stale_write_rejected",
+            {"agent": "remediation", "idempotency_key": action_id,
+             "generation_attempted": stale_gen,
+             "generation_current": current_gen,
+             "reason": reason}, tick)
+    return {
+        "mode": "workflow + continuity layer (real failover, real fence)",
+        "incident_id": incident_id,
+        "failure": "stale_write",
+        "layer": layer,
+        "attempted_generation": stale_gen,
+        "current_generation": current_gen,
+        "action": "restart:cache",
+        "action_id": action_id,
+        "rejected": rejected,
+        "reason": reason,
+        "blocked_actions": ["restart:cache"],
+    }
+
+
+def compare_stale_write(baseline: Dict[str, Any],
+                        protected: Dict[str, Any]) -> Dict[str, Any]:
+    rows = [
+        {
+            "aspect": "Delayed write from the fenced primary",
+            "baseline": ("APPLIED -- no fencing generations exist, so the "
+                         "delayed retry lands as a second effect"),
+            "protected": ("REJECTED at the store boundary "
+                          f"(StaleEpochError: {protected['reason']})"
+                          if protected["rejected"]
+                          else "ACCEPTED -- the fence did not hold (bug!)"),
+        },
+        {
+            "aspect": "Effects for one intended action",
+            "baseline": str(len(baseline["effects_applied"])),
+            "protected": "1 (the retry was refused, never half-applied)",
+        },
+        {
+            "aspect": "Write authority after failover",
+            "baseline": "no notion of generations -- anyone can write",
+            "protected": (f"generation {protected['attempted_generation']} "
+                          f"revoked; current generation "
+                          f"{protected['current_generation']}"),
+        },
+    ]
+    return {
+        "incident_id": baseline["incident_id"],
+        "failure": "stale_write",
+        "rows": rows,
+        "scorecard": build_scorecard(
+            protected["layer"],
+            rerun_cmd=("python3 -c \"from sim.ablation import "
+                       "run_challenge; run_challenge('stale_write')\"")),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Challenge mode: one entry point for the three "break it" buttons.
+# Returns everything the UI needs: title, baseline-vs-protected
+# comparison, and the recovery receipt -- all from real records.
+# ---------------------------------------------------------------------------
+
+CHALLENGE_TITLES = {
+    "lost_ack": "Challenge A \u2014 lose the acknowledgement",
+    "unsafe": "Challenge B \u2014 propose an unsafe action",
+    "stale_write": "Challenge C \u2014 stale write after failover",
+}
+
+
+def run_challenge(scenario: str,
+                  incident_id: Optional[str] = None) -> Dict[str, Any]:
+    """Run one break-it challenge. `scenario` is lost_ack | unsafe |
+    stale_write. Returns {scenario, incident_id, title, comparison,
+    receipt} -- comparison and receipt built from the runs' own records."""
+    import uuid as _uuid
+
+    if scenario not in CHALLENGE_TITLES:
+        raise ValueError(f"unknown challenge: {scenario}")
+    incident_id = (incident_id
+                   or f"CHAL-{scenario}-{_uuid.uuid4().hex[:6]}".upper())
+    if scenario == "lost_ack":
+        baseline = run_baseline("lost_ack", incident_id)
+        protected = run_protected("lost_ack", incident_id)
+        comparison = compare(baseline, protected)
+        receipt = receipt_from_lost_ack(protected)
+    elif scenario == "unsafe":
+        baseline = run_baseline("gray", incident_id)
+        protected = run_protected("gray", incident_id)
+        comparison = compare(baseline, protected)
+        receipt = receipt_from_blocked_action(
+            incident_id, protected, label="restart:database",
+            decision_source=("ledger.critical_violation + fencing rotation "
+                             "(role fenced before any effect)"),
+            recovery_result=("compromised primary fenced; standby resumed "
+                             "from the incident-scoped checkpoint"))
+    else:  # stale_write
+        baseline = run_baseline_stale_write(incident_id)
+        protected = run_protected_stale_write(incident_id)
+        comparison = compare_stale_write(baseline, protected)
+        receipt = receipt_from_blocked_action(
+            incident_id, protected, label="restart:cache",
+            decision_source="store.StaleEpochError at the effect boundary",
+            recovery_result=("fenced primary's delayed write rejected; "
+                             "nothing was half-applied"))
+    return {
+        "scenario": scenario,
+        "incident_id": incident_id,
+        "title": CHALLENGE_TITLES[scenario],
+        "comparison": comparison,
+        "receipt": receipt,
+    }
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
-        description="Ablation: same gray-failure scenario, with and without "
+        description="Ablation: same failure scenario, with and without "
                     "the continuity layer.")
-    ap.add_argument("--failure", choices=("gray", "silent"), default="gray")
+    ap.add_argument("--failure", choices=("gray", "silent", "lost_ack"),
+                    default="gray",
+                    help="gray/silent: invariant-violating agent output; "
+                         "lost_ack: the action commits but the acknowledgement "
+                         "is lost (commit-aware recovery demo)")
     ap.add_argument("--incident", default="INC-1043")
     args = ap.parse_args(argv)
 

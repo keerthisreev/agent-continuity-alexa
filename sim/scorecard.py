@@ -49,6 +49,7 @@ def build_scorecard(layer, rerun_cmd: str) -> Dict[str, Any]:
         "tsfd_ticks": computed.get("tsfd_ticks"),
         "trv_ticks": computed.get("trv_ticks"),
         "afr": computed.get("afr"),
+        "has_failure_window": bool(layer.ledger.windows),
         "duplicates_prevented": report.get("duplicates_prevented", 0),
         "buckets": bucketize(affected),
         "fencing_generations": {
@@ -64,13 +65,22 @@ def render_text(card: Dict[str, Any]) -> List[str]:
     afr = card["afr"]
     tsfd = card["tsfd_ticks"]
     trv = card["trv_ticks"]
+    has_window = card.get("has_failure_window", True)
+    if tsfd is None:
+        tsfd_str = "n/a (no failover in this run)"
+    else:
+        tsfd_str = (f"{tsfd} ticks"
+                    + (" (caught in the same observation cycle)"
+                       if tsfd == 0 else ""))
+    if trv is None:
+        trv_str = ("- (failure window still open)" if has_window
+                   else "- (no failure window in this run)")
+    else:
+        trv_str = f"{trv} ticks"
     lines = [
         "RELIABILITY SCORECARD (from the ledger, not a success message)",
-        f"  detection (TSFD) ............ "
-        f"{tsfd} ticks" + (" (caught in the same observation cycle)"
-                           if tsfd == 0 else ""),
-        f"  verified recovery (TRV) ..... "
-        f"{f'{trv} ticks' if trv is not None else '- (failure window still open)'}",
+        f"  detection (TSFD) ............ {tsfd_str}",
+        f"  verified recovery (TRV) ..... {trv_str}",
         f"  recovery rate (AFR) ......... "
         f"{('%.0f%%' % (afr * 100)) if afr is not None else '-'}",
         f"  duplicate writes prevented .. {card['duplicates_prevented']}",

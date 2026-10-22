@@ -89,6 +89,19 @@ FAULTS = {
         ],
         "detection": "StaleEpochError at the store boundary",
     },
+    "lost_ack": {
+        "name": "lost acknowledgement after commit",
+        "honest_label": ("Simulated fault (deterministic, preconfigured): the "
+                         "ride provider commits the booking, but the "
+                         "acknowledgement never reaches the agent."),
+        "invariants": [
+            "never execute a committed operation twice "
+            "(reconcile-before-retry)",
+            "same idempotency key + different payload is a conflict, "
+            "never a silent reuse",
+        ],
+        "detection": "journal reconcile: the committed receipt is reused",
+    },
 }
 
 HELP_TEXT = (
@@ -103,6 +116,9 @@ HELP_TEXT = (
     "preconfigured -- each names the invariant it violates up front.\n"
     "\"What happened to my tasks?\" gives the forensic report; "
     "\"run the ablation\" compares workflow-alone vs workflow+layer."
+    "\nBreak-it challenges (also as buttons on the /sim page): "
+    "\"lose the acknowledgement\" (commit-aware recovery), "
+    "\"propose an unsafe action\", \"stale-write challenge\"."
 )
 
 
@@ -120,6 +136,16 @@ def parse_request(text: str) -> Dict[str, Any]:
         return {"intent": "report"}
     if "ablation" in t:
         return {"intent": "ablation"}
+
+    challenge = None
+    if re.search(r"\b(lose the acknowledgement|challenge a)\b", t):
+        challenge = "lost_ack"
+    elif re.search(r"\b(propose an unsafe action|challenge b)\b", t):
+        challenge = "unsafe"
+    elif re.search(r"\b(stale.write challenge|challenge c)\b", t):
+        challenge = "stale_write"
+    if challenge:
+        return {"intent": "challenge", "scenario": challenge}
 
     inject = "inject" in t or "break the" in t or "fail the" in t
     failure = None
@@ -230,6 +256,8 @@ class SimSession:
             return [self._report_message()]
         if intent == "ablation":
             return [self._ablation_message(parsed.get("failure") or "gray")]
+        if intent == "challenge":
+            return [self._challenge_message(parsed["scenario"])]
         if intent == "start_task":
             return self._start_task(parsed["task"],
                                     arm_failure=parsed.get("arm_failure"))
@@ -516,3 +544,9 @@ class SimSession:
         baseline = run_baseline(failure, inc_id)
         protected = run_protected(failure, inc_id)
         return {"kind": "ablation", "comparison": compare(baseline, protected)}
+
+    def _challenge_message(self, scenario: str) -> Dict[str, Any]:
+        """Run one break-it challenge live; comparison + receipt, all from
+        the runs' own records."""
+        from .ablation import run_challenge
+        return {"kind": "challenge", **run_challenge(scenario)}

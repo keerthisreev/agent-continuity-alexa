@@ -224,6 +224,34 @@ def test_no_duplicate_actions():
     print("PASS duplicates: standby resumed mid-stage, completed work not redone")
 
 
+def test_action_identity_ignores_params_by_design():
+    # Design boundary, pinned: the idempotency key identifies WHAT was
+    # planned (incident:role:index:kind:target), not HOW (params). A replay
+    # proposing the same action with different params is treated as the
+    # same effect and skipped -- see _action_id's docstring for the rationale.
+    layer, store, primaries = make_world()
+    inc = incident("INC-900")
+    ctx = {"incident": inc}
+    for role in ("triage", "diagnosis"):
+        r = layer.invoke(role, ctx, primaries[role])
+        layer.apply_effects(r, store)
+        ctx[role] = r["output"]
+
+    r = layer.invoke("remediation", ctx, primaries["remediation"])
+    action = dict(r["output"]["actions"][0])
+    aid = layer._action_id(inc["id"], "remediation", 0, action)
+    assert store.apply_effect(r["active_agent_id"], r["role"],
+                              r["generation"], aid, action) is True
+    # Same identity, different params -> same key -> duplicate, skipped.
+    action_v2 = dict(action, params={"force": True, "note": "changed"})
+    aid_v2 = layer._action_id(inc["id"], "remediation", 0, action_v2)
+    assert aid_v2 == aid, "identity must not depend on params (pinned)"
+    assert store.apply_effect(r["active_agent_id"], r["role"],
+                              r["generation"], aid_v2, action_v2) is False, \
+        "same identity with different params must be treated as duplicate"
+    print("PASS idempotency boundary: params are not part of action identity (pinned)")
+
+
 # ---------------------------------------------------------------------------
 # 6. Fencing: stale generations rejected; rejoin only at a new generation
 #    after probes. The shared per-role generation means the stood-down
@@ -494,6 +522,7 @@ TESTS = [
     test_failure_b_silent_dependency,
     test_failure_c_gray_semantic,
     test_no_duplicate_actions,
+    test_action_identity_ignores_params_by_design,
     test_stale_generation_rejected_and_rejoin,
     test_failover_resumes_correct_incident_checkpoint,
     test_stale_write_racing_rotation_rejected,
