@@ -22,6 +22,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from continuity.journal import (IdempotencyConflict, IdempotencyKeyMismatch,
                                 OperationJournal, _fingerprint)
+from continuity.fencing import StaleEpochError
+from continuity.diagnostician import StubDiagnostician
+from test_continuity import make_world
 from sim.lost_ack import (AcknowledgementLost, ContinuityGateway,
                           SimulatedProvider, run_baseline_lost_ack,
                           run_protected_lost_ack)
@@ -117,7 +120,9 @@ def test_agent_never_saw_receipt():
     os.close(fd)
     provider = SimulatedProvider()
     journal = OperationJournal(path)
-    gateway = ContinuityGateway(provider, journal)
+    layer, _, _ = make_world(diagnostician=StubDiagnostician(), live=False)
+    gateway = ContinuityGateway(provider, journal, layer.fencing,
+                                "remediation")
     op = {"op_id": "op-gw", "key": "gw-key", **_ride_op()}
     agent_receipt = None  # everything the agent ever holds
     try:
@@ -137,7 +142,8 @@ def test_agent_never_saw_receipt():
     # from durable state.
     journal.close()
     journal2 = OperationJournal(path)
-    gateway2 = ContinuityGateway(provider, journal2)
+    gateway2 = ContinuityGateway(provider, journal2, layer.fencing,
+                                 "remediation")
     try:
         result = gateway2.execute(op)
         assert result["reused"] is True, result
@@ -151,6 +157,40 @@ def test_agent_never_saw_receipt():
         journal2.close()
         os.unlink(path)
     print("PASS gateway: agent never saw the receipt; retry from SQLite")
+
+
+def test_gateway_rejects_stale_generation_before_provider():
+    """A fenced (rotated) agent is rejected BEFORE the provider executes:
+    no downstream effect is created and no journal record is written.
+    Fencing is the authorization boundary; idempotency + reconciliation
+    stay separate protections."""
+    layer, _, _ = make_world(diagnostician=StubDiagnostician(), live=False)
+    fd, path = tempfile.mkstemp(prefix="test-fence-", suffix=".db")
+    os.close(fd)
+    provider = SimulatedProvider()
+    journal = OperationJournal(path)
+    try:
+        gateway = ContinuityGateway(provider, journal, layer.fencing,
+                                    "remediation")
+        # Failover rotates the generation: this gateway's agent is stale.
+        layer.fencing.rotate("remediation", layer.clock.tick())
+        op = {"op_id": "op-fenced", "key": "fence-key", **_ride_op()}
+        try:
+            gateway.execute(op)
+        except StaleEpochError:
+            pass
+        else:
+            raise AssertionError(
+                "expected StaleEpochError before provider dispatch")
+        assert provider.calls == 0, \
+            "stale agent must not reach the provider"
+        assert provider.created_receipts == []
+        assert journal.get("op-fenced") is None, \
+            "rejected op leaves no journal record"
+    finally:
+        journal.close()
+        os.unlink(path)
+    print("PASS gateway: stale generation rejected before provider dispatch")
 
 
 def test_intent_commit_lifecycle():
@@ -382,6 +422,7 @@ TESTS = [
     test_fingerprint_covers_full_operation,
     test_key_reuse_across_operations_rejected,
     test_agent_never_saw_receipt,
+    test_gateway_rejects_stale_generation_before_provider,
     test_intent_commit_lifecycle,
     test_retry_same_key_same_payload_reuses_receipt,
     test_same_key_different_payload_is_conflict,

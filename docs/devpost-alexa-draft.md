@@ -67,8 +67,9 @@ functions; (4) ledger-backed "what happened?" answers via the 7 MCP tools;
 (5) the SQLite operation journal + continuity gateway + lost-ack scenario;
 (6) the recovery receipt (card + JSON export); (7) break-it challenge mode;
 (8) review hardening — the agent/gateway information boundary, full-operation
-fingerprinting, cross-operation key-reuse rejection. **83/83 tests green**
-(full output in `docs/test-evidence.md`). The demo path is fully deterministic
+fingerprinting, cross-operation key-reuse rejection, and pre-dispatch fencing
+authorization at the gateway. **84/84 tests green, zero skipped** (full output
+in `docs/test-evidence.md`). The demo path is fully deterministic
 and offline — no API key needed to reproduce it.
 
 **Try it.** `python3 -m sim.ablation --failure lost_ack` for the flagship
@@ -112,7 +113,8 @@ Attach `docs/friction-log-draft.md` from the repo.
 
 ## Submission checklist (for her — from the official rules)
 - [x] Merge to `main` (PR #1 squash-merged; `alexa-plus-sim` branch deleted)
-- [ ] Merge the review-hardening PR (forthcoming) → `main`, delete branch
+- [x] Merge the review-hardening PR (PR #3 squash-merged)
+- [ ] Merge the gateway-fencing PR (forthcoming) → `main`, delete branch
 - [ ] Repo: private is fine IF shared with testing@devpost.com AND the five
       Amazon GitHub users — knmeiss, giolaq, anishamalde, mosesroth, emersonsklar
       — at submit time (invites expire in 7 days; do not send earlier)

@@ -78,7 +78,7 @@ python3 test_nemotron.py     # 12/12: Nemotron seam, offline-safe
 python3 test_mcp.py          # 11/11: MCP read-only ledger
 python3 test_showcase.py     #  7/7: dashboard scenario gallery
 python3 test_sim.py          # 17/17: Alexa+ sim (initiate -> interrupt -> resume)
-python3 test_journal.py      # 14/14: operation journal + gateway + lost-ack scenario
+python3 test_journal.py      # 15/15: operation journal + gateway + lost-ack scenario
 python3 demo.py              # the story, zero narration
 python3 demo.py --failure gray
 python3 dashboard/app.py     # live dashboard -> http://127.0.0.1:5000/
@@ -88,7 +88,7 @@ python3 examples/wrap_existing.py   # wrap YOUR agent shape without touching it
 Run everything at once:
 ```bash
 for t in test_continuity test_robust test_nemotron test_mcp test_showcase test_sim test_journal; do python3 $t.py; done
-# expected: 83/83 green, zero network calls, no API keys required
+# expected: 84/84 green, zero network calls, no API keys required
 ```
 
 **Alexa+ track submission (simulated Alexa+ experience, this repo's `main` branch):**
@@ -113,8 +113,10 @@ same full operation (service, op, target, params) reuses the committed
 receipt; same key + a different operation, or a key shared across operations,
 is a loud conflict, never a silent reuse. A `ContinuityGateway`
 (`sim/lost_ack.py`) separates the agent from the provider and the journal:
-it persists the receipt *before* the ack goes out, so on ack loss the agent
-provably never holds the original — the retry reconstructs it from SQLite.
+it authorizes the caller's fencing generation *before* dispatching any
+downstream effect, persists the receipt *before* the ack goes out, so on ack
+loss the agent provably never holds the original — the retry reconstructs it
+from SQLite.
 
 Honesty boundary: the journal provides reconcile-before-retry *discipline*,
 not a magic exactly-once guarantee. Exactly-once against an arbitrary external

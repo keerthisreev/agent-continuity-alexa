@@ -1,10 +1,11 @@
 # Test evidence — Alexa+ submission
 
 - Date: 2026-10-22 (evening, America/Chicago)
-- Commit: 9c9d96d (Review hardening: agent/gateway boundary + journal identity rules)
-- Branch: feature/review-hardening (PR to follow; merges to main)
+- Commit: 01cdd58 (Docs: test evidence, rewritten Alexa+ Devpost draft, README counts)
+- Branch: feature/gateway-fencing (PR to follow; merges to main)
 - Command: `for t in test_continuity test_robust test_nemotron test_mcp test_showcase test_sim test_journal; do python3 $t.py; done`
-- Environment: Python 3.12.3, offline (NEBIUS_API_KEY unset, CONTINUITY_LIVE unset), no network, deterministic (no randomness)
+- Environment: clean venv, Python 3.12.3, with flask, mcp>=2.0, pyyaml, requests installed — **zero skipped tests** (the dashboard and MCP checks that skip without optional deps all executed)
+- Also offline: NEBIUS_API_KEY unset, CONTINUITY_LIVE unset; no network; deterministic (no randomness)
 
 ## Full output
 ```
@@ -26,12 +27,18 @@ PASS nemotron seam: stub offline, live client ready for her key
 13/13 tests passed
 
 === test_robust ===
+127.0.0.1 - - [22/Oct/2026 18:15:03] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [22/Oct/2026 18:15:03] "GET /api/health HTTP/1.1" 200 -
+127.0.0.1 - - [22/Oct/2026 18:15:03] "GET /api/timeline?limit=10 HTTP/1.1" 200 -
+127.0.0.1 - - [22/Oct/2026 18:15:03] "GET /api/affected HTTP/1.1" 200 -
+127.0.0.1 - - [22/Oct/2026 18:15:03] "GET /api/money HTTP/1.1" 200 -
+127.0.0.1 - - [22/Oct/2026 18:15:03] "GET /api/report HTTP/1.1" 200 -
 PASS config: defaults reproduce behavior; YAML overrides merge
 PASS threaded smoke: 4x25 invocations, no lost updates, no duplicate effects
 PASS checkpoint versioning: unknown schema rejected, failover continues fresh
 PASS ledger export: valid forensic JSON with windows, affected-work map, TSFD/TRV/AFR
 PASS metrics: TSFD/TRV/AFR definitions hold
-SKIP dashboard: flask/werkzeug not installed (pip install -r requirements.txt); dashboard is optional
+PASS dashboard: all endpoints 200 with JSON on ephemeral port
 PASS nemotron: 2 retries then success, no exception
 PASS nemotron: circuit opens after 3 failures, silent stub fallback
 PASS nemotron: never raises; sentinel verdicts identical on/off
@@ -65,18 +72,18 @@ PASS mcp ledger_entries: kind filter, limit, cap
 PASS mcp narrative: deterministic stub text, names the role
 PASS mcp metrics: tsfd_ticks present
 PASS mcp read-only: report untouched after every tool
-SKIP mcp build_server: `mcp` package not installed
+PASS mcp build_server: 7 read-only tools registered
 
 11/11 tests passed
 
 === test_showcase ===
-SKIP showcase: Flask not installed
-SKIP showcase: Flask not installed
-SKIP showcase: Flask not installed
-SKIP showcase: Flask not installed
-SKIP showcase: Flask not installed
-SKIP showcase: Flask not installed
-SKIP showcase: Flask not installed
+PASS showcase index: 5 scenarios listed
+PASS showcase gray: FAILOVER, affected-work map, narrative
+PASS showcase healthy: no false failover
+PASS showcase semantic: gray semantic caught and shown
+PASS showcase duplicates: standby resumed, no double apply
+PASS showcase 404: unknown scenario
+PASS showcase: live view intact, no $20K panel
 
 7/7 tests passed
 
@@ -106,6 +113,7 @@ PASS journal: canonical operation fingerprint
 PASS journal: fingerprint covers service/op/target/params
 PASS journal: key shared across operations -> rejected
 PASS gateway: agent never saw the receipt; retry from SQLite
+PASS gateway: stale generation rejected before provider dispatch
 PASS journal: intent -> commit lifecycle
 PASS journal: same key+payload retry reuses receipt, single effect
 PASS journal: same key + different payload -> conflict, never silent
@@ -117,6 +125,6 @@ PASS receipt: every field read off journal/ledger/store
 PASS offline: key in env cannot flip the journal scenario online
 PASS honesty: no banned language in new/changed files
 
-14/14 journal tests passed
+15/15 journal tests passed
 
 ```
