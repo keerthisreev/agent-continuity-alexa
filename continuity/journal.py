@@ -28,9 +28,11 @@ Statuses: pending -> committed -> unknown -> reconciled.
   reconciled  the journal re-checked: receipt reused or provider re-check
               ordered (see recovery_decision)
 
-Conflict rule: the same idempotency key with a DIFFERENT payload
-fingerprint is a conflict -- it is rejected loudly, never silently
-treated as the same operation.
+Conflict rule: the same idempotency key with a DIFFERENT canonical
+operation is a conflict -- it is rejected loudly, never silently
+treated as the same operation. Likewise, a key already associated with
+a DIFFERENT logical operation id is rejected: keys are never shared
+across operations.
 """
 from __future__ import annotations
 
@@ -50,9 +52,21 @@ DECISION_RECONCILED_AMBIGUOUS = "reconciled_ambiguous_commit__receipt_reused"
 DECISION_NO_RECORD = "no_recorded_effect__verify_provider_before_retry"
 
 
-def _fingerprint(params: Dict[str, Any]) -> str:
-    """Canonical payload fingerprint: sha256 over sorted-key JSON."""
-    canonical = json.dumps(params if params is not None else {},
+def _canonical_operation(service: Optional[str], op: Optional[str],
+                         target: Optional[str],
+                         params: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """The full canonical operation identity. Two operations are the same
+    only if service, operation type, target, AND params all match."""
+    return {"service": service, "op": op, "target": target,
+            "params": params if params is not None else {}}
+
+
+def _fingerprint(operation: Dict[str, Any]) -> str:
+    """Canonical operation fingerprint: sha256 over sorted-key JSON of the
+    COMPLETE operation (service, operation type, target, params). The same
+    key + params for a different target or op type is a different
+    operation and fingerprints differently."""
+    canonical = json.dumps(operation if operation is not None else {},
                            sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
@@ -67,7 +81,7 @@ def _default_path() -> str:
 
 
 class IdempotencyConflict(Exception):
-    """Same idempotency key, different payload: refuse, don't silently reuse."""
+    """Same idempotency key, different operation: refuse, don't silently reuse."""
 
     def __init__(self, logical_op_id: str, idempotency_key: str,
                  expected_fingerprint: str, presented_fingerprint: str):
@@ -77,8 +91,26 @@ class IdempotencyConflict(Exception):
         self.presented_fingerprint = presented_fingerprint
         super().__init__(
             f"idempotency conflict for key {idempotency_key!r}: the same key "
-            f"was presented with a different payload (op {logical_op_id!r}). "
+            f"was presented with a different operation (op {logical_op_id!r}). "
             f"Refusing to treat them as the same operation.")
+
+
+class IdempotencyKeyMismatch(IdempotencyConflict):
+    """The idempotency key is already associated with a DIFFERENT logical
+    operation. Subclass of IdempotencyConflict so existing handlers catch
+    it; the message names both operations."""
+
+    def __init__(self, logical_op_id: str, idempotency_key: str,
+                 existing_op_id: str):
+        self.logical_op_id = logical_op_id
+        self.idempotency_key = idempotency_key
+        self.existing_op_id = existing_op_id
+        # Bypass IdempotencyConflict.__init__ (its fingerprint args don't
+        # apply here); call Exception directly.
+        super(IdempotencyConflict, self).__init__(
+            f"idempotency key {idempotency_key!r} is already associated with "
+            f"operation {existing_op_id!r}, not {logical_op_id!r}. Keys are "
+            f"never shared across operations: refusing.")
 
 
 class OperationJournal:
@@ -140,22 +172,36 @@ class OperationJournal:
             return [self._row_to_record(r) for r in cur.fetchall()]
 
     def record_intent(self, logical_op_id: str, idempotency_key: str,
-                      params: Dict[str, Any],
+                      service: Optional[str] = None,
+                      op: Optional[str] = None,
+                      target: Optional[str] = None,
+                      params: Optional[Dict[str, Any]] = None,
                       fencing_generation: Optional[int] = None) -> Dict[str, Any]:
         """Register intent to perform an operation.
 
-        REUSE path: the same key with the same payload fingerprint returns
-        the existing record (committed/reconciled -> reuse its receipt;
-        pending/unknown -> the caller must reconcile first). No duplicate
-        intent row is ever created.
+        The operation identity is the FULL canonical operation
+        (service, op type, target, params): two intents are the same only
+        if all four match.
+
+        REUSE path: the same key for the same logical operation with the
+        same fingerprint returns the existing record (committed/reconciled
+        -> reuse its receipt; pending/unknown -> the caller must reconcile
+        first). No duplicate intent row is ever created.
         CONFLICT path: the same key with a different fingerprint raises
-        IdempotencyConflict -- never silently treated as identical.
+        IdempotencyConflict; the same key for a different logical
+        operation raises IdempotencyKeyMismatch -- never silently treated
+        as identical.
         """
-        fp = _fingerprint(params)
+        canon = _canonical_operation(service, op, target, params)
+        fp = _fingerprint(canon)
         now = _now()
         with self._lock:
             existing = self._get_by_key_locked(idempotency_key)
             if existing is not None:
+                if existing["logical_op_id"] != logical_op_id:
+                    raise IdempotencyKeyMismatch(
+                        logical_op_id, idempotency_key,
+                        existing["logical_op_id"])
                 if existing["payload_fingerprint"] != fp:
                     raise IdempotencyConflict(
                         logical_op_id, idempotency_key,

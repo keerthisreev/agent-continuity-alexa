@@ -36,18 +36,23 @@ from continuity.diagnostician import StubDiagnostician
 from continuity.journal import OperationJournal
 
 # The multi-step user task. Deterministic fixtures, not a live integration.
+# "service" names the downstream provider for the journal's canonical
+# operation identity (service, op, target, params).
 USER_TASK_STEPS: List[Dict[str, Any]] = [
     {"name": "reserve_ride",
      "kind": "reserve", "target": "airport-pickup",
+     "service": "ride-provider",
      "label": "Reserve airport pickup",
      "params": {"pickup": "home", "dropoff": "AUS",
                 "time": "06:30", "date": "tomorrow"}},
     {"name": "update_calendar",
      "kind": "update", "target": "shared-calendar",
+     "service": "calendar-svc",
      "label": "Add pickup to shared calendar",
      "params": {"title": "Airport pickup", "start": "tomorrow 06:30"}},
     {"name": "notify_partner",
      "kind": "notify", "target": "partner",
+     "service": "notify-svc",
      "label": "Send partner the details",
      "params": {"channel": "sms",
                 "body": "Airport pickup booked for 06:30 tomorrow"}},
@@ -91,6 +96,90 @@ def _fresh_journal(path: Optional[str] = None) -> OperationJournal:
     return OperationJournal(path)
 
 
+class AcknowledgementLost(Exception):
+    """Simulated transport failure: the provider committed and the gateway
+    persisted the receipt, but the acknowledgement never reached the
+    agent. The agent holds NO receipt data -- only the op id and the
+    idempotency key it started with. Carries no receipt by construction."""
+
+
+class ContinuityGateway:
+    """The durable boundary between the agent and the downstream provider.
+
+    The agent NEVER calls the provider and NEVER touches the journal. It
+    calls gateway.execute(op). The gateway:
+
+      1. records intent in the journal (idempotency key + FULL canonical
+         operation fingerprint: service, op, target, params),
+      2. calls the provider exactly once per unseen key,
+      3. persists the receipt via record_commit BEFORE the ack goes out,
+      4. delivers the ack -- unless the ack is lost (simulated), in which
+         case the agent gets AcknowledgementLost and holds nothing.
+
+    On retry, the gateway serves the receipt from the journal's persisted
+    record (a fresh SQLite read via reconcile) -- reconstructed from
+    durable state, not from anyone's memory. The provider is never
+    re-hit for a key it already honored.
+    """
+
+    def __init__(self, provider: "SimulatedProvider",
+                 journal: OperationJournal,
+                 fencing_generation: Optional[int] = None):
+        self.provider = provider
+        self.journal = journal
+        self.fencing_generation = fencing_generation
+
+    def execute(self, op: Dict[str, Any], lose_ack: bool = False,
+                ledger=None, tick=None) -> Dict[str, Any]:
+        """Run one operation through the gateway. Returns a result dict;
+        raises AcknowledgementLost (never returns a receipt) when the ack
+        is lost. `op` needs: op_id, key, service, op, target, params."""
+        op_id, key = op["op_id"], op["key"]
+        rec = self.journal.record_intent(
+            op_id, key, service=op["service"], op=op["op"],
+            target=op["target"], params=op["params"],
+            fencing_generation=self.fencing_generation)
+        if ledger is not None:
+            ledger.record("journal_intent",
+                          {"op": op_id, "idempotency_key": key,
+                           "status": rec["status"]}, tick)
+        if rec["receipt"] is not None:
+            # Retry path: the journal already has this operation. Serve
+            # the persisted receipt -- reconcile() re-reads it from
+            # SQLite; the provider is not called again.
+            final = self.journal.reconcile(op_id)
+            if ledger is not None:
+                ledger.record("journal_reconciled",
+                              {"op": op_id,
+                               "decision": final["recovery_decision"]}, tick)
+            return {"receipt": dict(final["receipt"]), "reused": True,
+                    "provider_call": False, "created": False,
+                    "recovery_decision": final["recovery_decision"]}
+        # First sight of this key: call the provider exactly once...
+        receipt, created = self.provider.execute(op["op"], key, op["params"])
+        # ...persist the receipt BEFORE the ack goes out. If the process
+        # dies or the ack is lost from here on, the journal still knows.
+        self.journal.record_commit(op_id, receipt)
+        if ledger is not None:
+            ledger.record("journal_commit",
+                          {"op": op_id, "receipt": receipt}, tick)
+        if lose_ack:
+            self.journal.mark_unknown(op_id)
+            if ledger is not None:
+                ledger.record(
+                    "journal_ack_lost",
+                    {"op": op_id,
+                     "honest_note": "simulated: gateway persisted the "
+                                    "receipt; the ack never reached the "
+                                    "agent"}, tick)
+            raise AcknowledgementLost(
+                f"simulated ack loss for {op_id}: the provider committed "
+                f"and the gateway persisted the receipt; the agent holds "
+                f"no receipt data")
+        return {"receipt": receipt, "reused": False, "provider_call": True,
+                "created": created, "recovery_decision": None}
+
+
 def run_protected_lost_ack(incident_id: str = "INC-1043",
                            journal_path: Optional[str] = None) -> Dict[str, Any]:
     """The user task under journal discipline. Always offline:
@@ -111,60 +200,78 @@ def run_protected_lost_ack(incident_id: str = "INC-1043",
         layer.apply_effects(result, store)
         ctx[role] = result["output"]
 
-    # The user-facing operations, authorized at the remediation role's
-    # current fencing generation (the workflow role executing the request).
+    # The user-facing operations go through the continuity gateway.
+    # The agent NEVER touches the provider or the journal directly: it
+    # only ever holds what gateway.execute() returns to it.
     generation = layer.fencing.current("remediation")
+    gateway = ContinuityGateway(provider, journal,
+                                fencing_generation=generation)
     steps: List[Dict[str, Any]] = []
     for i, step in enumerate(USER_TASK_STEPS):
         op_id = f"{incident_id}:user_task:{i}:{step['name']}"
         key = op_id  # stable logical operation id doubles as idempotency key
+        op = {"op_id": op_id, "key": key, "service": step["service"],
+              "op": step["kind"], "target": step["target"],
+              "params": step["params"]}
         tick = layer.clock.tick()
-        rec = journal.record_intent(op_id, key, step["params"],
-                                    fencing_generation=generation)
-        layer.ledger.record(
-            "journal_intent",
-            {"op": op_id, "idempotency_key": key,
-             "status": rec["status"]}, tick)
-        receipt, created = provider.execute(step["kind"], key, step["params"])
+        # What the AGENT holds. None until an ack actually arrives: the
+        # information boundary the whole scenario is about.
+        agent_receipt = None
+        reused, created, recovery_decision = False, False, None
+        if i == 0:
+            # THE FAULT, through the gateway: the provider commits, the
+            # gateway persists the receipt, the ack never reaches the agent.
+            try:
+                gateway.execute(op, lose_ack=True, ledger=layer.ledger,
+                                tick=tick)
+                raise AssertionError(
+                    "lose_ack=True must not deliver a receipt")
+            except AcknowledgementLost:
+                # Provably nothing on the agent's side: the exception
+                # carries no receipt, and agent_receipt was never assigned.
+                # All the agent has is the op id + idempotency key.
+                pass
+            # Gateway "restart": the journal is closed and reloaded from
+            # SQLite, so the retry is served from durable state -- no
+            # in-memory receipt survives this point.
+            journal.close()
+            journal = OperationJournal(journal.path)
+            gateway.journal = journal
+            layer.ledger.record(
+                "gateway_restart",
+                {"op": op_id,
+                 "note": "journal reloaded from SQLite; the retry is "
+                         "reconstructed from persisted data"}, tick)
+            # The agent retries the SAME logical op through the gateway.
+            # Reconcile-before-retry: no new provider call, the persisted
+            # receipt is reconstructed and delivered.
+            result = gateway.execute(op, ledger=layer.ledger, tick=tick)
+            assert result["reused"] is True, result
+            assert result["provider_call"] is False, result
+            agent_receipt = result["receipt"]
+            reused, recovery_decision = True, result["recovery_decision"]
+            # By fault definition the provider created the effect on the
+            # first (ack-lost) attempt.
+            created = True
+        else:
+            result = gateway.execute(op, ledger=layer.ledger, tick=tick)
+            agent_receipt = result["receipt"]
+            created = result["created"]
+        # The agent records the local effect only once it holds a receipt.
+        # The store's idempotent apply refuses any duplicate key anyway
+        # (belt and suspenders, pinned in test_journal.py).
         action = {"kind": step["kind"], "target": step["target"],
                   "params": step["params"]}
         store.apply_effect("sim-user-task", "remediation", generation,
                            key, action, tick=tick)
-        journal.record_commit(op_id, receipt)
-        layer.ledger.record(
-            "journal_commit", {"op": op_id, "receipt": receipt}, tick)
         layer.ledger.record_stage(incident_id, "user_task",
                                   "sim-choreography", tick, "ok")
-        entry: Dict[str, Any] = {
-            "step": step, "op_id": op_id, "key": key, "receipt": receipt,
-            "created": created, "reused": False,
-            "recovery_decision": None,
+        steps.append({
+            "step": step, "op_id": op_id, "key": key,
+            "receipt": agent_receipt, "created": created, "reused": reused,
+            "recovery_decision": recovery_decision,
             "provider_calls_after": provider.calls,
-        }
-        if i == 0:
-            # THE FAULT: acknowledgement lost after commit.
-            journal.mark_unknown(op_id)
-            layer.ledger.record(
-                "journal_ack_lost",
-                {"op": op_id,
-                 "honest_note": "simulated: ack lost after commit"}, tick)
-            # The agent retries the SAME logical op -- but consults the
-            # journal first instead of re-executing blindly.
-            journal.record_intent(op_id, key, step["params"],
-                                  fencing_generation=generation)
-            final = journal.reconcile(op_id)
-            assert final["receipt"] == receipt, \
-                "reconcile must return the committed receipt"
-            layer.ledger.record(
-                "journal_reconciled",
-                {"op": op_id,
-                 "decision": final["recovery_decision"]}, tick)
-            entry["reused"] = True
-            entry["recovery_decision"] = final["recovery_decision"]
-            # No second provider call, no second store write: the receipt
-            # is reused. (The store would also refuse a duplicate key --
-            # belt and suspenders, pinned in test_journal.py.)
-        steps.append(entry)
+        })
 
     # Real escalation closes the workflow.
     result = layer.invoke("escalation", ctx, primaries["escalation"])

@@ -1,12 +1,16 @@
 """Tests for the SQLite operation journal and the lost-ack scenario.
 
 Covers: intent/commit/reconcile lifecycle, the REUSE path (same key +
-same payload -> existing receipt, no duplicate effect), the CONFLICT path
-(same key + different payload -> IdempotencyConflict, never silent reuse),
-crash recovery (close/reopen -> reconcile returns the committed receipt),
-baseline-vs-protected (naive retry double-books; journal discipline books
-once), and the recovery receipt (every field from real records).
-Deterministic, no randomness, no network.
+same full operation -> existing receipt, no duplicate effect), the
+CONFLICT path (same key + different operation -> IdempotencyConflict,
+never silent reuse), key-mismatch rejection (same key, different logical
+op -> IdempotencyKeyMismatch), the canonical fingerprint covering
+service/op/target/params, crash recovery (close/reopen -> reconcile
+returns the committed receipt), the agent/gateway information boundary
+(the agent never holds the receipt; the retry reconstructs it from
+SQLite), baseline-vs-protected (naive retry double-books; journal
+discipline books once), and the recovery receipt (every field from real
+records). Deterministic, no randomness, no network.
 """
 from __future__ import annotations
 
@@ -16,9 +20,10 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from continuity.journal import (IdempotencyConflict, OperationJournal,
-                                _fingerprint)
-from sim.lost_ack import (SimulatedProvider, run_baseline_lost_ack,
+from continuity.journal import (IdempotencyConflict, IdempotencyKeyMismatch,
+                                OperationJournal, _fingerprint)
+from sim.lost_ack import (AcknowledgementLost, ContinuityGateway,
+                          SimulatedProvider, run_baseline_lost_ack,
                           run_protected_lost_ack)
 from sim.receipt import NOT_RECORDED, receipt_from_lost_ack, render_text_lines
 
@@ -29,19 +34,131 @@ def _tmp_journal() -> OperationJournal:
     return OperationJournal(path)
 
 
+def _ride_op(**over):
+    """Canonical ride-reserve operation; override any field."""
+    op = {"service": "ride-provider", "op": "reserve",
+          "target": "airport-pickup", "params": {"time": "06:30"}}
+    op.update(over)
+    return op
+
+
 def test_fingerprint_canonical():
-    a = _fingerprint({"b": 1, "a": 2})
-    b = _fingerprint({"a": 2, "b": 1})
-    c = _fingerprint({"a": 2, "b": 3})
+    base = _ride_op(params={"b": 1, "a": 2})
+    a = _fingerprint(base)
+    reordered = {"params": {"a": 2, "b": 1}, "target": "airport-pickup",
+                 "op": "reserve", "service": "ride-provider"}
+    b = _fingerprint(reordered)
+    c = _fingerprint(_ride_op(params={"a": 2, "b": 3}))
     assert a == b, "key order must not change the fingerprint"
-    assert a != c, "different payload must fingerprint differently"
-    print("PASS journal: canonical payload fingerprint")
+    assert a != c, "different params must fingerprint differently"
+    print("PASS journal: canonical operation fingerprint")
+
+
+def test_fingerprint_covers_full_operation():
+    """Same key + params for a different target/service/op is a DIFFERENT
+    operation: it fingerprints differently and record_intent refuses to
+    conflate it with the committed one."""
+    j = _tmp_journal()
+    try:
+        j.record_intent("op-a", "key-1", **_ride_op())
+        j.record_commit("op-a", {"booking_id": "RIDE-1"})
+        for field, value in (("target", "downtown"),
+                             ("op", "cancel"),
+                             ("service", "other-provider")):
+            other = _ride_op(**{field: value})
+            assert _fingerprint(other) != _fingerprint(_ride_op()), \
+                f"fingerprint must distinguish {field}"
+            try:
+                j.record_intent("op-a", "key-1", **other)
+            except IdempotencyConflict:
+                pass
+            else:
+                raise AssertionError(
+                    f"expected IdempotencyConflict for different {field}")
+        # The original record is untouched by the refused attempts.
+        rec = j.get("op-a")
+        assert rec["status"] == "committed", rec
+        assert rec["receipt"] == {"booking_id": "RIDE-1"}, rec
+    finally:
+        j.close()
+    print("PASS journal: fingerprint covers service/op/target/params")
+
+
+def test_key_reuse_across_operations_rejected():
+    """The same idempotency key presented for a DIFFERENT logical operation
+    is rejected: keys are never shared across operations."""
+    j = _tmp_journal()
+    try:
+        j.record_intent("op-a", "key-1", **_ride_op())
+        try:
+            j.record_intent("op-b", "key-1", **_ride_op())
+        except IdempotencyKeyMismatch as exc:
+            assert exc.existing_op_id == "op-a", exc
+            assert isinstance(exc, IdempotencyConflict), \
+                "mismatch must stay catchable as IdempotencyConflict"
+            assert "op-b" in str(exc) and "op-a" in str(exc), str(exc)
+        else:
+            raise AssertionError("expected IdempotencyKeyMismatch")
+        # op-a's record is untouched.
+        assert j.get("op-a")["status"] == "pending"
+        assert j.get("op-b") is None
+    finally:
+        j.close()
+    print("PASS journal: key shared across operations -> rejected")
+
+
+def test_agent_never_saw_receipt():
+    """The flagship proof, structurally enforced. The gateway raises
+    AcknowledgementLost (which carries no receipt data); the journal is
+    then closed and reloaded from SQLite; the retry's receipt is
+    reconstructed from the persisted record. The agent never held the
+    original: booking count stays one, the provider is never re-hit."""
+    fd, path = tempfile.mkstemp(prefix="test-gateway-", suffix=".db")
+    os.close(fd)
+    provider = SimulatedProvider()
+    journal = OperationJournal(path)
+    gateway = ContinuityGateway(provider, journal)
+    op = {"op_id": "op-gw", "key": "gw-key", **_ride_op()}
+    agent_receipt = None  # everything the agent ever holds
+    try:
+        gateway.execute(op, lose_ack=True)
+        raise AssertionError("lose_ack=True must raise, not return")
+    except AcknowledgementLost as lost:
+        assert not any(isinstance(a, dict) for a in lost.args), \
+            "AcknowledgementLost must not carry receipt data"
+        assert agent_receipt is None
+    assert provider.calls == 1, provider.calls
+    assert len(provider.created_receipts) == 1
+    # Independent read of what was persisted before the "restart".
+    persisted = OperationJournal(path).get("op-gw")
+    assert persisted["status"] == "unknown", persisted
+    assert persisted["receipt"] is not None
+    # Gateway "restart": nothing in memory survives; the retry is served
+    # from durable state.
+    journal.close()
+    journal2 = OperationJournal(path)
+    gateway2 = ContinuityGateway(provider, journal2)
+    try:
+        result = gateway2.execute(op)
+        assert result["reused"] is True, result
+        assert result["provider_call"] is False, result
+        assert provider.calls == 1, "retry must not re-hit the provider"
+        assert result["receipt"] == persisted["receipt"], \
+            "retried receipt must equal the persisted record"
+        agent_receipt = result["receipt"]
+        assert agent_receipt["effect_id"].startswith("RESERVE-")
+    finally:
+        journal2.close()
+        os.unlink(path)
+    print("PASS gateway: agent never saw the receipt; retry from SQLite")
 
 
 def test_intent_commit_lifecycle():
     j = _tmp_journal()
     try:
-        rec = j.record_intent("op-1", "key-1", {"ride": "AUS"})
+        rec = j.record_intent("op-1", "key-1", service="ride-provider",
+                              op="reserve", target="airport-pickup",
+                              params={"ride": "AUS"})
         assert rec["status"] == "pending", rec
         rec = j.record_commit("op-1", {"booking_id": "RIDE-1"})
         assert rec["status"] == "committed", rec
@@ -59,14 +176,17 @@ def test_retry_same_key_same_payload_reuses_receipt():
     try:
         op, key = "op-ride", "ride-key"
         params = {"pickup": "home", "dropoff": "AUS"}
-        j.record_intent(op, key, params)
+        j.record_intent(op, key, service="ride-provider", op="reserve",
+                        target="airport-pickup", params=params)
         receipt, created = provider.execute("reserve", key, params)
         assert created is True
         j.record_commit(op, receipt)
         # SIMULATED: the acknowledgement is lost.
         j.mark_unknown(op)
         # The agent retries the SAME logical op: journal first.
-        again = j.record_intent(op, key, params)
+        again = j.record_intent(op, key, service="ride-provider",
+                                op="reserve", target="airport-pickup",
+                                params=params)
         assert again["status"] == "unknown", again
         assert again["receipt"] == receipt, "existing receipt must be returned"
         final = j.reconcile(op)
@@ -83,13 +203,17 @@ def test_retry_same_key_same_payload_reuses_receipt():
 
 
 def test_same_key_different_payload_is_conflict():
-    """(b) Same key, different payload: loud conflict, original untouched."""
+    """(b) Same key, different operation: loud conflict, original untouched."""
     j = _tmp_journal()
     try:
-        j.record_intent("op-1", "key-1", {"ride": "AUS"})
+        j.record_intent("op-1", "key-1", service="ride-provider",
+                        op="reserve", target="airport-pickup",
+                        params={"ride": "AUS"})
         j.record_commit("op-1", {"booking_id": "RIDE-1"})
         try:
-            j.record_intent("op-1", "key-1", {"ride": "DFW"})
+            j.record_intent("op-1", "key-1", service="ride-provider",
+                            op="reserve", target="airport-pickup",
+                            params={"ride": "DFW"})
         except IdempotencyConflict as exc:
             assert exc.idempotency_key == "key-1"
         else:
@@ -97,7 +221,8 @@ def test_same_key_different_payload_is_conflict():
         rec = j.get("op-1")
         assert rec["status"] == "committed", rec
         assert rec["receipt"] == {"booking_id": "RIDE-1"}, rec
-        assert rec["payload_fingerprint"] == _fingerprint({"ride": "AUS"})
+        assert rec["payload_fingerprint"] == _fingerprint(
+            _ride_op(params={"ride": "AUS"})), rec
     finally:
         j.close()
     print("PASS journal: same key + different payload -> conflict, never silent")
@@ -110,7 +235,8 @@ def test_crash_recovery_close_reopen():
     os.close(fd)
     j = OperationJournal(path)
     receipt = {"booking_id": "RIDE-7", "status": "confirmed"}
-    j.record_intent("op-x", "key-x", {"ride": "AUS"})
+    j.record_intent("op-x", "key-x", service="ride-provider", op="reserve",
+                    target="airport-pickup", params={"ride": "AUS"})
     j.record_commit("op-x", receipt)
     j.close()
     # "Restart": a brand-new connection to the same file.
@@ -129,7 +255,8 @@ def test_crash_recovery_close_reopen():
 def test_reconcile_without_receipt_orders_provider_check():
     j = _tmp_journal()
     try:
-        j.record_intent("op-n", "key-n", {"x": 1})
+        j.record_intent("op-n", "key-n", service="notify-svc", op="notify",
+                        target="partner", params={"x": 1})
         j.mark_unknown("op-n")  # ack lost before any commit was recorded
         rec = j.reconcile("op-n")
         assert rec["receipt"] is None, rec
@@ -252,6 +379,9 @@ def test_no_banned_language_in_new_files():
 
 TESTS = [
     test_fingerprint_canonical,
+    test_fingerprint_covers_full_operation,
+    test_key_reuse_across_operations_rejected,
+    test_agent_never_saw_receipt,
     test_intent_commit_lifecycle,
     test_retry_same_key_same_payload_reuses_receipt,
     test_same_key_different_payload_is_conflict,

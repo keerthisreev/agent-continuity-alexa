@@ -1,9 +1,7 @@
-# Friction log — DRAFT (Amazon Developer Hackathon, Alexa+ track)
+# Friction log — Amazon Developer Hackathon, Alexa+ track
 
 Genuine issues hit while building this submission, with expected vs actual and
-the workaround. **TODO before submitting:** add 2–3 entries from today's sim
-build (ablation runner, scorecard wiring, Flask/ledger surprises) in the same
-format — expected vs actual + workaround. Do not invent friction.
+the workaround. All entries below are real events from the Oct 22–23 build.
 
 ## 1. The MCP integration I expected to build already existed
 
@@ -44,17 +42,25 @@ format — expected vs actual + workaround. Do not invent friction.
   sim on the real engine (additive only, no MCP surface), source committed on
   `alexa-plus-sim`.
 
-## 5. [TODO — from today's build] e.g. ablation runner edge case
+## 5. Bundle downloads through chat became the bottleneck
 
-- **Expected:**
-- **Actual:**
-- **Workaround:**
+- **Expected:** Keep shipping git bundles through chat for her to clone and push.
+- **Actual:** After the third bundle she said downloading and applying them was too
+  painful to repeat — the manual handoff was eating build time the night before
+  the deadline.
+- **Workaround:** Connected the GitHub App (OAuth under her identity) with access
+  scoped to just this repo, and pushed branches through the connector instead.
+  No tokens exchanged, no terminal work for her; she approves each push.
 
-## 6. [TODO — from today's build] e.g. scorecard metrics wiring
+## 6. The test suite was green while a showcase route 500'd
 
-- **Expected:**
-- **Actual:**
-- **Workaround:**
+- **Expected:** The suite guards every user-facing route.
+- **Actual:** `/showcase/duplicates` returned 500 (KeyError: 'epoch' from stale
+  pre-rework store/checkpoint APIs) while its 6/6 tests passed — no test ever
+  exercised that scenario end to end.
+- **Workaround:** Fixed the stale API calls and added the missing regression test
+  that drives the route itself. Lesson applied to the new work: the challenge-mode
+  tests hit the HTTP endpoints, not just the functions behind them.
 
 ---
 
@@ -62,7 +68,8 @@ format — expected vs actual + workaround. Do not invent friction.
 
 Per the rules, pre-existing projects must "clearly describe and demo the feature
 updates during the Submission Period." Everything below was built Oct 22–23, 2026,
-on the `alexa-plus-sim` branch:
+on `alexa-plus-sim` (merged to `main` via PR #1) and the follow-up
+hardening branch:
 
 1. **Conversational Alexa+-style sim control surface** — start tasks in natural
    language, inject a gray failure mid-run, ask "what happened?", resume with context.
@@ -74,3 +81,15 @@ on the `alexa-plus-sim` branch:
    command, computed by the real metrics functions from the ledger.
 4. **Ledger-backed "what happened?" answers** — the sim answers recovery questions
    through the existing 7 MCP read-only tools, not a new Q&A layer.
+5. **Commit-aware recovery (flagship)** — SQLite operation journal with
+   reconcile-before-retry: the action commits, the ack is lost, the gateway
+   persists the receipt, the agent retries through the journal and reuses the
+   receipt. Baseline double-books; the protected run books exactly once.
+6. **Recovery receipt** — per-operation + global receipt built from real records
+   (journal + ledger + store), rendered as a card on `/sim` with JSON export.
+7. **Break-it challenge mode** — three buttons (lost ack, unsafe action, stale
+   write) with baseline-vs-layer comparison and receipt for each.
+8. **Review hardening** — agent/gateway information boundary (the agent never
+   holds the receipt; the retry reconstructs it from SQLite after a journal
+   reload), full-operation fingerprinting (service/op/target/params), and
+   cross-operation key-reuse rejection.
