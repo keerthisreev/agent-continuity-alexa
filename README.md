@@ -80,6 +80,14 @@ python3 dashboard/app.py     # live dashboard -> http://127.0.0.1:5000/
 python3 examples/wrap_existing.py   # wrap YOUR agent shape without touching it
 ```
 
+**Alexa+ track submission (simulated Alexa+ experience, this repo's `alexa-plus-sim` branch):**
+```bash
+python3 dashboard/app.py     # -> http://127.0.0.1:5000/sim  (chat: initiate -> "inject a gray failure" -> "continue" -> "what happened?")
+python3 -m sim.ablation --failure gray --incident INC-1043   # baseline vs protected, side-by-side from real runs
+python3 test_sim.py          # 16/16: the sim's own proof
+```
+No API keys, no network — everything above runs fully offline and deterministic.
+
 **Docker:**
 ```bash
 cp .env.example .env   # add NEBIUS_API_KEY + CONTINUITY_LIVE=1 for the live Nemotron beat (optional)
