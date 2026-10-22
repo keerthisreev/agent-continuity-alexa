@@ -253,10 +253,14 @@ def _demo_world():
     from continuity.checkpoint import STATE_ADAPTERS
     from continuity.contracts import CONTRACTS
     from continuity.diagnostician import default_diagnostician
+    from continuity.nemotron import live_enabled
     from continuity.standby import StandbyController
     from store import IncidentStore
 
-    layer = ContinuityLayer(diagnostician=default_diagnostician())
+    # Offline unless CONTINUITY_LIVE=1 is explicitly set (credit safety:
+    # key presence alone never enables network calls).
+    layer = ContinuityLayer(diagnostician=default_diagnostician(
+        live=live_enabled()))
     store = IncidentStore(layer.fencing, layer.ledger)
     primaries = {
         "triage": TriageAgent(),

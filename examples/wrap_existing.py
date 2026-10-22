@@ -116,7 +116,7 @@ def main() -> int:
     third_party = OrderSupportAgent()          # their agent, unmodified
     wrapped = wrap(third_party)                # our thin mapping only
 
-    layer = ContinuityLayer(diagnostician=StubDiagnostician())
+    layer = ContinuityLayer(diagnostician=StubDiagnostician(), live=False)
     store = IncidentStore(layer.fencing, layer.ledger)
     standby_agent = OrderSupportAgent(name="support-agent-standby")
     layer.register("support", CONTRACTS["remediation"],

@@ -29,20 +29,23 @@ TITLES = {
 }
 
 
-def pick_diagnostician(choice: str):
+def pick_diagnostician(choice: str, live: bool):
     if choice == "none":
         return None, "disabled (deterministic sentinel alone)"
     if choice == "stub":
         return StubDiagnostician(), "stub (deterministic)"
-    d = default_diagnostician()
+    d = default_diagnostician(live=live)
     if isinstance(d, NemotronDiagnostician):
         return d, (f"Nemotron via Nebius Token Factory [{d.model}] -- "
                    f"visible NVIDIA usage for the video")
-    return d, "stub -- set NEBIUS_API_KEY for live Nemotron via Nebius Token Factory"
+    if live:
+        return d, "stub -- live requested but NEBIUS_API_KEY not set"
+    return d, "stub -- add --live with NEBIUS_API_KEY for live Nemotron via Nebius Token Factory"
 
 
-def run_scenario(failure: str, diagnostician):
-    layer, store, primaries = make_world(diagnostician=diagnostician)
+def run_scenario(failure: str, diagnostician, live: bool):
+    layer, store, primaries = make_world(diagnostician=diagnostician,
+                                         live=live)
     inc1, inc2 = incident("INC-1042"), incident("INC-1043")
     process_incident(layer, store, primaries, inc1)
 
@@ -106,7 +109,8 @@ def render_timeline(layer) -> list:
                              f"scenarios, deterministic oracle judges")
             else:
                 lines.append(f"{_t(t)}  [static] {d['count']} deterministic canary "
-                             f"probe for role={d['role']} (no key set)")
+                             f"probe for role={d['role']} (offline: --live + "
+                             f"NEBIUS_API_KEY for Nemotron probes)")
         elif k == "anomaly":
             lines.append(f"{_t(t)}  ROLE ANOMALY -- {d['violations'][0]}")
         elif k == "critical_violation":
@@ -186,12 +190,18 @@ def main() -> int:
                     default="all")
     ap.add_argument("--diagnostician", choices=("auto", "none", "stub"),
                     default="auto")
+    ap.add_argument("--live", action="store_true",
+                    help="explicit opt-in for live Nebius calls (requires "
+                         "NEBIUS_API_KEY); without it everything runs offline "
+                         "on deterministic static probes and the stub")
     args = ap.parse_args()
 
-    diagnostician, diag_label = pick_diagnostician(args.diagnostician)
+    diagnostician, diag_label = pick_diagnostician(args.diagnostician,
+                                                  args.live)
     failures = FAILURES if args.failure == "all" else (args.failure,)
 
     print("AGENT CONTINUITY LAYER -- brutal proof")
+    print(f"mode: {'LIVE (Nebius Token Factory)' if args.live else 'OFFLINE (deterministic, zero network calls)'}")
     print(f"diagnostician: {diag_label}")
     print("sentinel: deterministic (authoritative with diagnostician disabled)")
     print()
@@ -201,7 +211,7 @@ def main() -> int:
         print(TITLES[failure])
         print("-" * 64)
         layer, store, inc1, inc2, rejoined, narrative = run_scenario(
-            failure, diagnostician)
+            failure, diagnostician, args.live)
         for line in render_timeline(layer):
             print(line)
         for line in render_money_screen(layer, inc1, inc2, rejoined, narrative):
