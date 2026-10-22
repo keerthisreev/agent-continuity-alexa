@@ -73,6 +73,16 @@ def test_showcase_unknown_is_404():
     print("PASS showcase 404: unknown scenario")
 
 
+def test_showcase_duplicates_no_double_apply():
+    if not FLASK_AVAILABLE:
+        print("SKIP showcase: Flask not installed")
+        return
+    body = _client().get("/showcase/duplicates").data.decode()
+    assert "FAILOVER" in body, "primary death must trigger standby failover"
+    assert "duplicate" in body.lower()
+    print("PASS showcase duplicates: standby resumed, no double apply")
+
+
 def test_showcase_live_view_still_works():
     if not FLASK_AVAILABLE:
         print("SKIP showcase: Flask not installed")
@@ -89,6 +99,7 @@ TESTS = [
     test_showcase_gray_verdict,
     test_showcase_healthy_no_failover,
     test_showcase_semantic_human_review,
+    test_showcase_duplicates_no_double_apply,
     test_showcase_unknown_is_404,
     test_showcase_live_view_still_works,
 ]

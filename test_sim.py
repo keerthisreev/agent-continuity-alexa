@@ -93,7 +93,7 @@ def test_full_beat_gray_failure():
     assert inc_id == "INC-1043"
 
     # Checkpoint provenance: incident-scoped, resume not restart.
-    pkg = s.layer._checkpoints.get(("remediation", inc_id))
+    pkg = s.layer.checkpoint_package("remediation", inc_id)
     assert pkg is not None and pkg.incident_id == inc_id
     prov = None
     for stage in reversed(task["stages"]):

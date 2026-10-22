@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
+from . import ROLES
+
 # Disposition strings are the ledger's own vocabulary (continuity/ledger.py).
 BUCKET_COMPLETED = "completed clean"
 BUCKET_RECOVERED = ("recovered via standby", "replayed by standby")
@@ -50,8 +52,7 @@ def build_scorecard(layer, rerun_cmd: str) -> Dict[str, Any]:
         "duplicates_prevented": report.get("duplicates_prevented", 0),
         "buckets": bucketize(affected),
         "fencing_generations": {
-            role: layer.fencing.current(role)
-            for role in ("triage", "diagnosis", "remediation", "escalation")
+            role: layer.fencing.current(role) for role in ROLES
         },
         "rerun": rerun_cmd,
     }

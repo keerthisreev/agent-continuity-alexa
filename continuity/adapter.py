@@ -90,6 +90,16 @@ class ContinuityLayer:
                          key=lambda k: self._checkpoints[k].tick)
             del self._checkpoints[oldest]
 
+    # -- read-only inspection (reporting / demo surfaces) -------------------
+    def checkpoint_package(self, agent_id: str, incident_id: str):
+        """Return the continuity package for (agent, incident), or None.
+
+        Read-only accessor so reporting surfaces (sim, ablation,
+        dashboard) never reach into _checkpoints directly.
+        """
+        with self._lock:
+            return self._checkpoints.get((agent_id, incident_id))
+
     # -- registration ------------------------------------------------------
     def register(self, agent_id: str, role_contract, state_adapter,
                  standby, primary=None, canary_task=None,

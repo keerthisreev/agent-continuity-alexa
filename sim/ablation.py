@@ -37,10 +37,8 @@ from store import IncidentStore
 from test_continuity import make_world
 from continuity.diagnostician import StubDiagnostician
 
+from . import FAILURE_MODES, ROLES
 from .scorecard import build_scorecard, render_text
-
-ROLES = ("triage", "diagnosis", "remediation", "escalation")
-FAILURE_MODES = {"gray": "gray", "silent": "llm_down"}
 
 
 def make_incident(incident_id: str) -> dict:
@@ -50,6 +48,19 @@ def make_incident(incident_id: str) -> dict:
 
 def _action_label(action: dict) -> str:
     return f"{action.get('kind')}:{action.get('target')}"
+
+
+def _peek_proposal(agent, ctx: dict) -> dict:
+    """Read what the agent *proposes* without running it through the layer.
+
+    Why this exists: ContinuityLayer.invoke() transparently retries with
+    the standby on failover, so the invocation result never carries the
+    compromised primary's raw proposal -- the report needs it to show what
+    was blocked. Safety precondition: the scripted test doubles' handle()
+    is pure (effects land only via layer.apply_effects / store.apply_effect),
+    so this peek applies nothing.
+    """
+    return agent.handle(dict(ctx))
 
 
 # ---------------------------------------------------------------------------
@@ -121,11 +132,11 @@ def run_protected(failure: str = "gray",
 
     for role in ("triage", "diagnosis", "remediation"):
         _invoke(role)
-    # Verification pass: arm the failure, snapshot what the agent proposes
-    # (pure read -- the primary has no restore package), then let the layer
-    # observe the same output through its own invocation path.
+    # Verification pass: peek at what the compromised primary proposes
+    # (pure read -- see _peek_proposal), then let the layer observe the
+    # same output through its own invocation path, which fences it.
     primaries["remediation"].backend.mode = FAILURE_MODES[failure]
-    proposed = primaries["remediation"].handle(dict(ctx))
+    proposed = _peek_proposal(primaries["remediation"], ctx)
     blocked = [_action_label(a) for a in proposed.get("actions", [])]
     result = _invoke("remediation")
     if result["active"] == "standby":
@@ -133,15 +144,19 @@ def run_protected(failure: str = "gray",
     _invoke("escalation")
 
     # Effects the layer actually allowed: completed action ids recorded in
-    # the incident-scoped checkpoints (id format incident:role:i:kind:target).
+    # the incident-scoped checkpoints. Action ids have the form
+    # incident:role:index:kind:target (see ContinuityLayer._action_id).
+    def _effect_label(action_id: str) -> str:
+        parts = action_id.split(":")
+        return f"{parts[3]}:{parts[4]}" if len(parts) >= 5 else action_id
+
     effects_allowed = []
-    for (agent_id, inc_id), pkg in layer._checkpoints.items():
-        if inc_id != incident_id:
+    for role in ROLES:
+        pkg = layer.checkpoint_package(role, incident_id)
+        if pkg is None:
             continue
-        for aid in pkg.completed_action_ids:
-            parts = aid.split(":")
-            if len(parts) >= 5:
-                effects_allowed.append(f"{parts[3]}:{parts[4]}")
+        effects_allowed.extend(_effect_label(aid)
+                               for aid in pkg.completed_action_ids)
 
     # What the sentinel saw: first anomaly/critical entry for this incident.
     detected = None

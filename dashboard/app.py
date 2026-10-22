@@ -27,6 +27,8 @@ from flask import Flask, jsonify, render_template_string, request
 
 from test_continuity import make_world, incident
 
+from sim.scorecard import render_text as _render_scorecard_text
+
 ROLES = ("triage", "diagnosis", "remediation", "escalation")
 
 STATE_COLORS = {
@@ -203,8 +205,10 @@ def _run_duplicates():
     r = layer.invoke("remediation", ctx, primaries["remediation"])
     action = r["output"]["actions"][0]
     aid = layer._action_id(inc["id"], "remediation", 0, action)
-    store.apply_effect(r["active_agent_id"], r["epoch"], aid, action)
-    layer._checkpoints["remediation"].completed_action_ids.append(aid)
+    store.apply_effect(r["active_agent_id"], "remediation",
+                       r["generation"], aid, action)
+    pkg = layer.checkpoint_package("remediation", inc["id"])
+    pkg.completed_action_ids.append(aid)
     primaries["remediation"].alive = False
     r2 = layer.invoke("remediation", ctx, primaries["remediation"])
     layer.apply_effects(r2, store)
@@ -615,17 +619,13 @@ def _render_sim_message(msg: dict) -> str:
             'difference is the layer. An ablation, not a competitor comparison.</div>'
             '<table class="cmp"><tr><th></th><th>Workflow alone</th>'
             '<th>Workflow + layer</th></tr>' + rows + '</table>'
-            f'<pre class="score">{_sim_escape(chr(10).join(_scorecard_render_text(c["scorecard"])))}</pre>'
+            f'<pre class="score">{_sim_escape(chr(10).join(_render_scorecard_text(c["scorecard"])))}</pre>'
             '</div>')
     return f'<div class="msg bot">{_sim_escape(str(msg))}</div>'
 
 
-def _scorecard_render_text(card):
-    from sim.scorecard import render_text
-    return render_text(card)
-
-
 _SIM_SESSIONS: dict = {}
+_SIM_SESSION_CAP = 128
 
 
 def _sim_get_session(session_id):
@@ -634,6 +634,9 @@ def _sim_get_session(session_id):
     if not session_id or session_id not in _SIM_SESSIONS:
         session_id = _uuid.uuid4().hex[:12]
         _SIM_SESSIONS[session_id] = SimSession()
+        # Bound memory: demo sessions are ephemeral; evict the oldest.
+        while len(_SIM_SESSIONS) > _SIM_SESSION_CAP:
+            _SIM_SESSIONS.pop(next(iter(_SIM_SESSIONS)))
     return session_id, _SIM_SESSIONS[session_id]
 
 

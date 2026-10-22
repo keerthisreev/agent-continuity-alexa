@@ -24,12 +24,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from test_continuity import make_world
 from continuity.diagnostician import StubDiagnostician
+from continuity.fencing import StaleEpochError
 from continuity.mcp_server import LedgerView
 from store import IncidentStore
 
+from . import FAILURE_MODES, ROLES
 from .scorecard import bucketize, build_scorecard, render_text as render_scorecard
-
-ROLES = ("triage", "diagnosis", "remediation", "escalation")
 
 # ---------------------------------------------------------------------------
 # Simulated NLU: deterministic keyword mapping. Documented as simulated;
@@ -47,8 +47,6 @@ TASK_KEYWORDS: List[Tuple[Tuple[str, ...], Dict[str, str]]] = [
      {"service": "orders-db", "symptom": "connection pool exhaustion",
       "label": "database health"}),
 ]
-
-FAILURE_MODES = {"gray": "gray", "silent": "llm_down"}
 
 # Fault catalog: every fault the sim can inject is a deterministic,
 # preconfigured scripted-backend mode -- never generalized AI-failure
@@ -151,7 +149,7 @@ def parse_request(text: str) -> Dict[str, Any]:
         return out
     if inject:
         return {"intent": "inject", "failure": failure}
-    if re.search(r"\b(continue|resume|go on|proceed|go ahead|^yes$)\b", t):
+    if re.search(r"\b(continue|resume|go on|proceed|go ahead)\b", t) or t == "yes":
         return {"intent": "continue"}
     if re.search(r"\b(test the fence|fence test|stale write)\b", t):
         return {"intent": "fence_test"}
@@ -248,7 +246,6 @@ class SimSession:
         generation. Drives the REAL store rejection path (StaleEpochError)
         with a fresh action id so idempotency can't mask the fencing check.
         """
-        from continuity.fencing import StaleEpochError
         task = self._current_task()
         if task is None or task.get("failover") is None:
             return [{"kind": "text", "text":
@@ -305,7 +302,6 @@ class SimSession:
         exercise its (possibly compromised) primary. This mirrors the
         real lifecycle in demo.py: heal, probe, rejoin at a new generation.
         """
-        from continuity.sentinel import FAILOVER  # noqa
         msgs: List[Dict[str, Any]] = []
         for role in ROLES:
             agent_id = self.primaries[role].agent_id
@@ -471,8 +467,7 @@ class SimSession:
     def _resume_message(self, task: Dict[str, Any]) -> Dict[str, Any]:
         """Prove resume-not-restart from the checkpoint provenance."""
         inc_id = task["incident"]["id"]
-        key = ("remediation", inc_id)
-        pkg = self.layer._checkpoints.get(key)
+        pkg = self.layer.checkpoint_package("remediation", inc_id)
         prov = None
         for stage in reversed(task["stages"]):
             prov = (stage["output"] or {}).get("continuity")
