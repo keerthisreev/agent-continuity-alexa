@@ -13,7 +13,7 @@ Usage:
     layer.apply_effects(result, store)
 
 Agents are never modified. The layer observes inputs/outputs, checkpoints
-healthy outputs, routes to the standby on failover, and fences epochs.
+healthy outputs, routes to the standby on failover, and fences shared per-role generations.
 """
 from __future__ import annotations
 
@@ -74,8 +74,21 @@ class ContinuityLayer:
             diagnostician=diagnostician, config=self.config,
             logger=self.logger)
         self._reg: dict = {}
-        self._checkpoints: dict = {}  # logical agent_id -> ContinuityPackage
+        # (agent_id, incident_id) -> ContinuityPackage. One slot per
+        # incident: a failover can never hand the standby another
+        # incident's checkpoint.
+        self._checkpoints: dict = {}
         self._lock = threading.RLock()
+
+    #: Bound on retained checkpoints; oldest tick evicted past it.
+    _CHECKPOINT_CAP = 500
+
+    def _store_checkpoint(self, key, package) -> None:
+        self._checkpoints[key] = package
+        if len(self._checkpoints) > self._CHECKPOINT_CAP:
+            oldest = min(self._checkpoints,
+                         key=lambda k: self._checkpoints[k].tick)
+            del self._checkpoints[oldest]
 
     # -- registration ------------------------------------------------------
     def register(self, agent_id: str, role_contract, state_adapter,
@@ -98,9 +111,10 @@ class ContinuityLayer:
         if getattr(standby, "logger", None) is None:
             standby.logger = self.logger
         self.sentinel.register(agent_id, role_contract, tasks, primary)
-        epoch = self.fencing.issue(agent_id)
+        generation = self.fencing.rotate(role)
         self.ledger.record("registered",
-                           {"agent": agent_id, "role": role, "epoch": epoch})
+                           {"agent": agent_id, "role": role,
+                            "generation": generation})
         self.ledger.record("canary_probes_generated",
                            {"agent": agent_id, "role": role,
                             "source": self.canary_generator.source,
@@ -123,10 +137,9 @@ class ContinuityLayer:
         roles are not serialized behind slow agents. Component locks
         (sentinel, fencing, ledger, store, clock) protect shared state.
 
-        Concurrency note: the checkpoint slot holds the latest package per
-        role. Action ids embed the incident id and the failover merge is
-        guarded by incident match, so concurrent incidents can never
-        corrupt each other's resume decisions.
+        Checkpoint slots are keyed by (agent, incident): concurrent
+        incidents can never corrupt each other's resume decisions, and a
+        failover always receives the failed incident's own package.
         """
         reg = self._reg[agent_id]
         role = reg["role"]
@@ -135,12 +148,12 @@ class ContinuityLayer:
             with self._lock:
                 active = self.sentinel.active_for(agent_id)
                 agent = agent_fn if active == "primary" else reg["standby"].agent
-                epoch = self.fencing.current(agent.agent_id)
+                generation = self.fencing.current(role)
                 tick = self.clock.tick()
                 self.ledger.record(
                     "invoke",
                     {"agent": agent.agent_id, "role": role,
-                     "incident": incident_id, "epoch": epoch}, tick)
+                     "incident": incident_id, "generation": generation}, tick)
             try:
                 output = agent.handle(ctx)
             except Exception as exc:  # noqa: BLE001 - crash is a signal
@@ -151,7 +164,7 @@ class ContinuityLayer:
                     if active == "standby":
                         raise RuntimeError(
                             f"standby {agent.agent_id} also crashed")
-                    self._do_failover(agent_id, tick)
+                    self._do_failover(agent_id, role, incident_id, tick)
                 continue
             with self._lock:
                 decision = self.sentinel.check_output(agent_id, ctx, output, tick)
@@ -166,7 +179,7 @@ class ContinuityLayer:
                         self.ledger.flag_human_review(
                             incident_id,
                             f"{agent_id} attempted: {crit[0].message}", tick)
-                    self._do_failover(agent_id, tick)
+                    self._do_failover(agent_id, role, incident_id, tick)
                     continue
                 outcome = "standby" if active == "standby" else "ok"
                 self.ledger.record_stage(incident_id, role, agent.agent_id,
@@ -179,27 +192,40 @@ class ContinuityLayer:
                         reg["state_adapter"], planned)
                     # Preserve already-completed work for this incident across
                     # the failover boundary: the standby must not redo it.
-                    prev = self._checkpoints.get(agent_id)
-                    if prev is not None and prev.incident_id == incident_id:
+                    # The slot is incident-scoped, so the merge can only ever
+                    # see this incident's own history.
+                    key = (agent_id, incident_id)
+                    prev = self._checkpoints.get(key)
+                    if prev is not None:
+                        assert prev.incident_id == incident_id
                         for aid in prev.completed_action_ids:
                             if (aid in new_pkg.planned_action_ids
                                     and aid not in new_pkg.completed_action_ids):
                                 new_pkg.completed_action_ids.append(aid)
-                    self._checkpoints[agent_id] = new_pkg
+                    self._store_checkpoint(key, new_pkg)
                 return {"agent_id": agent_id, "role": role,
                         "incident_id": incident_id, "active": active,
-                        "active_agent_id": agent.agent_id, "epoch": epoch,
+                        "active_agent_id": agent.agent_id,
+                        "generation": generation,
                         "output": output, "tick": tick}
         raise RuntimeError(f"failover loop for {agent_id}")
 
-    def _do_failover(self, agent_id: str, tick: int) -> None:
+    def _do_failover(self, agent_id: str, role: str, incident_id: str,
+                     tick: int) -> None:
         reg = self._reg[agent_id]
-        package = self._checkpoints.get(agent_id)
-        self.fencing.revoke(agent_id, tick)
+        # The failed incident's OWN checkpoint -- never another incident's.
+        package = self._checkpoints.get((agent_id, incident_id))
+        if package is not None:
+            assert package.incident_id == incident_id, (
+                f"checkpoint incident mismatch: slot {(agent_id, incident_id)} "
+                f"holds {package.incident_id}")
+        # One shared generation per role: rotating it invalidates the failed
+        # primary AND any previously-authorized standby in a single step.
+        generation = self.fencing.rotate(role, tick)
         self.ledger.record("fencing",
-                           {"agent": agent_id, "action": "epoch revoked"}, tick)
+                           {"role": role, "action": "generation rotated",
+                            "generation": generation}, tick)
         standby = reg["standby"]
-        epoch = self.fencing.issue(standby.agent.agent_id, tick)
         try:
             standby.activate(package)
         except UnknownSchemaVersion:
@@ -216,24 +242,24 @@ class ContinuityLayer:
             standby.activate(None)
             package = None
         self.sentinel.set_state(agent_id, FAILOVER, tick)
-        self.ledger.mark_failover(tick, standby.agent.agent_id, epoch)
+        self.ledger.mark_failover(tick, standby.agent.agent_id, generation)
         self.ledger.record(
             "standby_activated",
-            {"standby": standby.agent.agent_id, "epoch": epoch,
+            {"standby": standby.agent.agent_id, "generation": generation,
              "resumed_from_tick": package.tick if package else None,
              "resumed_from_incident": package.incident_id if package else None},
             tick)
 
     # -- effects -------------------------------------------------------------
     def apply_effects(self, result: dict, store) -> None:
-        """Apply an output's actions to the store: idempotent, epoch-fenced.
+        """Apply an output's actions to the store: idempotent, fenced.
 
         Every action carries an explicit idempotency key; skips are logged
         with their reason. Thread-safe.
         """
         with self._lock:
             agent_id = result["agent_id"]
-            package = self._checkpoints.get(agent_id)
+            package = self._checkpoints.get((agent_id, result["incident_id"]))
             for i, action in enumerate(result["output"].get("actions", [])):
                 idempotency_key = self._action_id(result["incident_id"],
                                                  result["role"], i, action)
@@ -244,7 +270,9 @@ class ContinuityLayer:
                     continue
                 try:
                     applied = store.apply_effect(result["active_agent_id"],
-                                                 result["epoch"], idempotency_key,
+                                                 result["role"],
+                                                 result["generation"],
+                                                 idempotency_key,
                                                  action, tick=result["tick"])
                 except StaleEpochError as exc:
                     # Lost the race with a failover: the write is rejected,
@@ -272,7 +300,7 @@ class ContinuityLayer:
 
     # -- recovery --------------------------------------------------------------
     def attempt_rejoin(self, agent_id: str) -> bool:
-        """Revalidate the primary and return it to service at a new epoch.
+        """Revalidate the primary and return it to service at a new generation.
 
         The standby stays authoritative until every probe passes.
         Thread-safe.
@@ -289,12 +317,18 @@ class ContinuityLayer:
             self.sentinel.set_state(agent_id, FAILOVER, tick)
             self.ledger.record("rejoin_denied", {"agent": agent_id}, tick)
             return False
-        new_epoch = self.fencing.issue(agent_id, tick)
+        # Shared per-role generation: rotating it hands write authority to
+        # the recovered primary AND invalidates the standby's generation in
+        # the same step. A delayed standby write after this point is a
+        # stale write, and the store will reject it.
+        role = self._reg[agent_id]["role"]
+        new_generation = self.fencing.rotate(role, tick)
         self.sentinel.set_state(agent_id, REJOIN, tick)
         self._reg[agent_id]["standby"].stand_down()
         self.sentinel.set_state(agent_id, HEALTHY, tick)
         self.ledger.end_failure_window(
-            tick, f"primary rejoined at epoch {new_epoch}")
+            tick, f"primary rejoined at generation {new_generation}")
         self.ledger.record("rejoin_complete",
-                           {"agent": agent_id, "new_epoch": new_epoch}, tick)
+                           {"agent": agent_id,
+                            "new_generation": new_generation}, tick)
         return True

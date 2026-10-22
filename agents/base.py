@@ -57,11 +57,41 @@ class IncidentAgent:
         self.role = role
         self.backend = backend
         self.alive = True
+        self._resume_package = None
 
     def handle(self, ctx: dict) -> dict:
         if not self.alive:
             raise AgentProcessDead(f"{self.agent_id}: process is dead")
         return self._run(ctx)
+
+    def restore(self, package) -> None:
+        """Continuity hook: consume a checkpoint to resume mid-workflow.
+
+        Called by the layer (never by the agent's own workflow) when this
+        agent takes over for a failed peer. The default remembers the
+        package; subclasses override to rebuild internal state from it.
+        `package` carries incident_id, tick, planned/completed action ids,
+        evidence_refs, and the role state snapshot.
+        """
+        self._resume_package = package
+
+    def _resume_annotation(self, ctx: dict) -> dict | None:
+        """Provenance for the first output produced after a restore.
+
+        Scoped to the restored incident and consumed on use: a standby
+        that later serves other incidents must not carry stale provenance.
+        """
+        pkg = self._resume_package
+        if pkg is None:
+            return None
+        if ctx.get("incident", {}).get("id") != pkg.incident_id:
+            return None
+        self._resume_package = None  # consumed: provenance belongs to one output
+        return {
+            "resumed_from_incident": pkg.incident_id,
+            "resumed_from_tick": pkg.tick,
+            "already_completed": list(pkg.completed_action_ids),
+        }
 
     def _run(self, ctx: dict) -> dict:  # pragma: no cover - overridden
         raise NotImplementedError

@@ -43,4 +43,11 @@ class RemediationAgent(IncidentAgent):
             # HTTP 200, process alive, output well-formed -- and useless.
             return {"status": "success", "remediation": None, "actions": [],
                     "evidence": [], "note": "unable to determine"}
-        return json.loads(raw)
+        output = json.loads(raw)
+        # Provenance: this output continues a verified checkpoint, it is
+        # not a fresh plan. The layer's contract checks tolerate the key,
+        # and the annotation is consumed on first use (see base).
+        annotation = self._resume_annotation(ctx)
+        if annotation is not None:
+            output["continuity"] = annotation
+        return output

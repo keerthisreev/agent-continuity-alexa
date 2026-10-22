@@ -1,11 +1,14 @@
 """Shared incident store (existing workflow infrastructure).
 
 Not part of the continuity layer: this is the store the *existing*
-workflow already writes to. Every write carries the writer's epoch; the
-fencing authority rejects stale epochs, and duplicate action ids are
-refused (counted, not applied twice).
+workflow already writes to. Every write carries the writer role's current
+fencing generation; the fencing authority rejects stale generations, and
+duplicate action ids are refused (counted, not applied twice).
 
-Thread-safe: safe under concurrent role invocations.
+Thread-safe: safe under concurrent role invocations. The fencing check
+runs INSIDE the store lock, atomically with the commit, so a generation
+rotation that lands mid-authorization is observed before anything is
+written -- a stale write cannot slip through between check and commit.
 """
 from __future__ import annotations
 
@@ -23,21 +26,26 @@ class IncidentStore:
         self.incidents: dict = {}
         self._lock = threading.RLock()
 
-    def apply_effect(self, agent_id: str, epoch: int, action_id: str,
-                     action: dict, tick: int | None = None) -> bool:
+    def apply_effect(self, agent_id: str, role: str, generation: int,
+                     action_id: str, action: dict,
+                     tick: int | None = None) -> bool:
         """Apply one action effect. Returns False if it was a duplicate.
 
         `action_id` is the explicit idempotency key: the same key is never
         applied twice, no matter which side (primary or standby) retries.
+        `agent_id` is attribution (which physical agent wrote); `role` +
+        `generation` is the fencing authority that must be current.
         """
-        self.fencing.check(agent_id, epoch, tick)  # raises StaleEpochError
         with self._lock:
+            # Atomic with the commit below: a rotation landing while this
+            # write is in flight is observed here, before the write lands.
+            self.fencing.check(role, generation, tick)  # raises StaleEpochError
             if action_id in self.applied:
                 self.logger.log("duplicate_refused", agent=agent_id, tick=tick,
                                 idempotency_key=action_id)
                 return False
             self.applied[action_id] = {
-                "agent": agent_id, "epoch": epoch,
+                "agent": agent_id, "role": role, "generation": generation,
                 "kind": action.get("kind"), "target": action.get("target"),
                 "params": action.get("params", {}),
             }

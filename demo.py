@@ -129,16 +129,19 @@ def render_timeline(layer) -> list:
                                                      "RECOVERING", "REJOIN"):
             lines.append(f"{_t(t)}  agent {d['to']}")
         elif k == "fencing":
-            lines.append(f"{_t(t)}  FENCED -- remediation epoch revoked (no split brain)")
+            lines.append(f"{_t(t)}  FENCED -- remediation generation rotated (no split brain)")
         elif k == "standby_activated":
-            lines.append(f"{_t(t)}  STANDBY ACTIVATED at epoch {d['epoch']} -- "
-                         f"resumed from last-known-good t+{d['resumed_from_tick']:04d}")
+            resumed = (f"resumed from last-known-good t+{d['resumed_from_tick']:04d}"
+                       if d.get("resumed_from_tick") is not None
+                       else "no checkpoint yet -- starts fresh")
+            lines.append(f"{_t(t)}  STANDBY ACTIVATED at generation {d['generation']} -- "
+                         f"{resumed}")
         elif k == "duplicate_write_prevented":
             lines.append(f"{_t(t)}  duplicate write prevented: {d['action_id']}")
         elif k == "human_review_flagged":
             lines.append(f"{_t(t)}  HUMAN REVIEW FLAGGED -- {d['reason']}")
         elif k == "rejoin_complete":
-            lines.append(f"{_t(t)}  PRIMARY REJOINED at epoch {d['new_epoch']} "
+            lines.append(f"{_t(t)}  PRIMARY REJOINED at generation {d['new_generation']} "
                          f"-- probes passed, write authority restored")
         elif k == "rejoin_denied":
             lines.append(f"{_t(t)}  rejoin DENIED -- still degraded")
@@ -154,13 +157,16 @@ def render_money_screen(layer, inc1, inc2, rejoined: bool, narrative) -> list:
     resumed = next((e["detail"]["resumed_from_tick"]
                     for e in rep["timeline"]
                     if e["kind"] == "standby_activated"), None)
+    resumed_s = (f"t+{resumed:04d} (checkpoint before first anomaly "
+                 f"at t+{w['first_anomaly_tick']:04d})"
+                 if resumed is not None
+                 else "none -- standby started fresh (no checkpoint existed)")
     lines = []
     lines.append("")
     lines.append("=" * 64)
     lines.append("THE $20K SCREEN")
     lines.append("=" * 64)
-    lines.append(f"last known good ......... t+{resumed:04d} "
-                 f"(checkpoint before first anomaly at t+{w['first_anomaly_tick']:04d})")
+    lines.append(f"last known good ......... {resumed_s}")
     lines.append(f"failure detected ........ t+{w['failover_tick']:04d} "
                  f"(TSFD: {rep['tsfd_ticks']} ticks -- same observation cycle)")
     lines.append("")
@@ -174,7 +180,7 @@ def render_money_screen(layer, inc1, inc2, rejoined: bool, narrative) -> list:
         lines.append(f"  {h['incident']}  human review -- {h['reason'][:70]}")
     lines.append("")
     lines.append(f"duplicate writes prevented: {rep['duplicates_prevented']}")
-    lines.append(f"recovery: {'primary rejoined at new epoch -- recovery complete'
+    lines.append(f"recovery: {'primary rejoined at new generation -- recovery complete'
                   if rejoined else 'REJOIN FAILED'}")
     lines.append("=" * 64)
     if narrative:

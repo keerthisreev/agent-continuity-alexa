@@ -87,12 +87,13 @@ class ForensicLedger:
                     {"agent": agent_id, "reason": reason,
                      "first_anomaly_tick": first_anomaly_tick}, tick)
 
-    def mark_failover(self, tick: int, standby_id: str, standby_epoch: int) -> None:
+    def mark_failover(self, tick: int, standby_id: str, standby_generation: int) -> None:
         with self._lock:
             if self.windows:
                 self.windows[-1]["failover_tick"] = tick
         self.record("failover",
-                    {"standby": standby_id, "standby_epoch": standby_epoch}, tick)
+                    {"standby": standby_id,
+                     "standby_generation": standby_generation}, tick)
 
     def end_failure_window(self, tick: int, resolution: str) -> None:
         with self._lock:

@@ -5,7 +5,7 @@ Failure modes:
   B: silent dependency -- agent alive, LLM connection broken (THE gray beat)
   C: gray semantic     -- agent alive, returns plausible-but-useless output
 
-Plus: healthy run (no false failover), duplicate prevention, stale-epoch
+Plus: healthy run (no false failover), duplicate prevention, stale-generation
 fencing + safe rejoin, ledger completeness, diagnostician optionality.
 
 Run:  python3 test_continuity.py
@@ -210,8 +210,9 @@ def test_no_duplicate_actions():
     r = layer.invoke("remediation", ctx, primaries["remediation"])
     action = r["output"]["actions"][0]
     aid = layer._action_id(inc["id"], "remediation", 0, action)
-    assert store.apply_effect(r["active_agent_id"], r["epoch"], aid, action) is True
-    layer._checkpoints["remediation"].completed_action_ids.append(aid)
+    assert store.apply_effect(r["active_agent_id"], r["role"], r["generation"],
+                              aid, action) is True
+    layer._checkpoints[("remediation", "INC-900")].completed_action_ids.append(aid)
 
     primaries["remediation"].alive = False
     r2 = layer.invoke("remediation", ctx, primaries["remediation"])
@@ -224,24 +225,36 @@ def test_no_duplicate_actions():
 
 
 # ---------------------------------------------------------------------------
-# 6. Fencing: stale epochs rejected; rejoin only at a new epoch after probes
+# 6. Fencing: stale generations rejected; rejoin only at a new generation
+#    after probes. The shared per-role generation means the stood-down
+#    standby's writes are rejected too -- no separate revoke step to forget.
 # ---------------------------------------------------------------------------
 
-def test_stale_epoch_rejected_and_rejoin():
+def test_stale_generation_rejected_and_rejoin():
     layer, store, primaries = make_world()
     process_incident(layer, store, primaries, INCIDENTS[0])
 
     primaries["remediation"].alive = False
-    old_epoch = layer.fencing.current("remediation")
+    old_generation = layer.fencing.current("remediation")
     process_incident(layer, store, primaries, INCIDENTS[1])
     assert layer.sentinel.state_of("remediation") == FAILOVER
+    # The failover rotated the shared generation; this is the standby's now.
+    standby_generation = layer.fencing.current("remediation")
+    assert standby_generation != old_generation
 
-    # The dead primary's epoch is worthless now.
+    # The dead primary's generation is worthless now.
     try:
-        store.apply_effect("remediation", old_epoch, "X:0:k:t", {"kind": "k"})
-        raise AssertionError("stale epoch write was NOT rejected")
+        store.apply_effect("remediation", "remediation", old_generation,
+                           "X:0:k:t", {"kind": "k"})
+        raise AssertionError("stale generation write was NOT rejected")
     except StaleEpochError:
         pass
+
+    # A delayed write from the STANDBY's generation is fine while it is
+    # authoritative...
+    assert store.apply_effect("remediation-standby", "remediation",
+                              standby_generation, "X:0:k3:t3",
+                              {"kind": "k3"}) is True
 
     # Primary recovers: transport back, but write authority is NOT restored
     # until the semantic recovery probe passes.
@@ -250,28 +263,140 @@ def test_stale_epoch_rejected_and_rejoin():
     assert layer.attempt_rejoin("remediation") is True
     assert layer.sentinel.state_of("remediation") == HEALTHY
 
-    new_epoch = layer.fencing.current("remediation")
-    assert new_epoch != old_epoch
+    new_generation = layer.fencing.current("remediation")
+    assert new_generation != old_generation
+    assert new_generation != standby_generation
+    # The old primary's generation is still dead...
     try:
-        store.apply_effect("remediation", old_epoch, "X:0:k:t", {"kind": "k"})
-        raise AssertionError("old epoch still accepted after rejoin")
+        store.apply_effect("remediation", "remediation", old_generation,
+                           "X:0:k:t", {"kind": "k"})
+        raise AssertionError("old generation still accepted after rejoin")
     except StaleEpochError:
         pass
-    assert store.apply_effect("remediation", new_epoch, "X:0:k2:t2",
-                              {"kind": "k2"}) is True
+    # ...AND the stood-down standby's generation is dead too. This is the
+    # hole the shared per-role generation closes: no revoke step needed.
+    try:
+        store.apply_effect("remediation-standby", "remediation",
+                           standby_generation, "X:0:k4:t4", {"kind": "k4"})
+        raise AssertionError("stood-down standby write was NOT rejected")
+    except StaleEpochError:
+        pass
+    assert store.apply_effect("remediation", "remediation", new_generation,
+                              "X:0:k2:t2", {"kind": "k2"}) is True
 
     # Next invocation routes back to the primary.
     r = layer.invoke("remediation", {"incident": incident("INC-901"),
                                      "diagnosis": {"root_cause": "bad deployment v5.2",
                                                    "evidence": ["log"], "confidence": 0.9}},
                      primaries["remediation"])
-    assert r["active"] == "primary" and r["epoch"] == new_epoch
+    assert r["active"] == "primary" and r["generation"] == new_generation
 
     # Recovery is fully recorded: window closed with a resolution.
     w = layer.ledger.windows[0]
     assert w["end_tick"] is not None and "rejoined" in w["resolution"]
-    print("PASS fencing: stale epoch rejected, rejoin only after probes, "
-          "new epoch issued")
+    print("PASS fencing: stale generation rejected, rejoin only after probes, "
+          "new generation issued, standby invalidated on rejoin")
+
+
+# ---------------------------------------------------------------------------
+# 6b. Checkpoint restore: the standby resumes the FAILED incident -- not a
+#     stale checkpoint from another incident -- without replaying work.
+# ---------------------------------------------------------------------------
+
+def test_failover_resumes_correct_incident_checkpoint():
+    layer, store, primaries = make_world()
+    # INC-A completes fully: its checkpoint stays in the slot.
+    process_incident(layer, store, primaries, incident("INC-A"))
+    # INC-B starts: remediation produces a healthy plan, one action applied,
+    # then the primary crashes MID-INCIDENT.
+    ctx_b = {"incident": incident("INC-B")}
+    for role in ("triage", "diagnosis"):
+        r = layer.invoke(role, ctx_b, primaries[role])
+        layer.apply_effects(r, store)
+        ctx_b[role] = r["output"]
+    r = layer.invoke("remediation", ctx_b, primaries["remediation"])
+    action = r["output"]["actions"][0]
+    aid = layer._action_id("INC-B", "remediation", 0, action)
+    layer.apply_effects(r, store)
+    assert aid in store.applied, "the action must have landed before the crash"
+
+    primaries["remediation"].alive = False
+    r2 = layer.invoke("remediation", ctx_b, primaries["remediation"])
+    assert r2["active"] == "standby"
+
+    # The standby resumed INC-B -- provably not INC-A's stale checkpoint.
+    annotation = r2["output"].get("continuity")
+    assert annotation is not None, "standby output must carry resume provenance"
+    assert annotation["resumed_from_incident"] == "INC-B"
+    assert annotation["already_completed"] == [aid]
+    assert "INC-A" not in str(annotation)
+
+    # The standby's restored output passed contract validation before any
+    # side effect (invoke only returns after sentinel.check_output passes).
+    layer.apply_effects(r2, store)
+
+    # Already-completed work was NOT replayed; the effect exists exactly once.
+    assert layer.ledger.duplicates_prevented >= 1
+    assert list(store.applied).count(aid) == 1
+
+    # Forensic record attributes the resume to the right incident.
+    activations = [e for e in layer.ledger.timeline
+                   if e["kind"] == "standby_activated"]
+    assert activations[-1]["detail"]["resumed_from_incident"] == "INC-B"
+    print("PASS checkpoint restore: standby resumed the failed incident's "
+          "checkpoint, no replay, no cross-incident contamination")
+
+
+# ---------------------------------------------------------------------------
+# 6c. Concurrency: a stale write racing a generation rotation is rejected.
+# ---------------------------------------------------------------------------
+
+def test_stale_write_racing_rotation_rejected():
+    import threading
+    layer, store, primaries = make_world()
+    old_generation = layer.fencing.current("remediation")
+
+    # Gate the fencing check so we can land a rotation mid-authorization.
+    entered = threading.Event()
+    release = threading.Event()
+    real_check = layer.fencing.check
+
+    def gated_check(role, generation, tick=None):
+        entered.set()
+        assert release.wait(timeout=10), "test deadlock: gate never released"
+        return real_check(role, generation, tick)
+
+    errors = []
+
+    def racing_writer():
+        try:
+            store.apply_effect("remediation", "remediation", old_generation,
+                               "R:0:k:t", {"kind": "k"})
+        except StaleEpochError as exc:
+            errors.append(exc)
+
+    layer.fencing.check = gated_check
+    try:
+        t = threading.Thread(target=racing_writer)
+        t.start()
+        assert entered.wait(timeout=10), "test deadlock: writer never arrived"
+        # The rotation lands while the stale write is mid-authorization.
+        layer.fencing.rotate("remediation")
+        release.set()
+        t.join(timeout=10)
+    finally:
+        layer.fencing.check = real_check
+
+    assert len(errors) == 1, "racing stale write must be rejected, not applied"
+    assert "R:0:k:t" not in store.applied
+
+    # The new generation still writes fine.
+    new_generation = layer.fencing.current("remediation")
+    assert new_generation != old_generation
+    assert store.apply_effect("remediation", "remediation", new_generation,
+                              "R:0:k2:t2", {"kind": "k2"}) is True
+    print("PASS concurrency: stale write racing a rotation is rejected; "
+          "new generation writes normally")
 
 
 def test_rejoin_denied_when_still_broken():
@@ -369,7 +494,9 @@ TESTS = [
     test_failure_b_silent_dependency,
     test_failure_c_gray_semantic,
     test_no_duplicate_actions,
-    test_stale_epoch_rejected_and_rejoin,
+    test_stale_generation_rejected_and_rejoin,
+    test_failover_resumes_correct_incident_checkpoint,
+    test_stale_write_racing_rotation_rejected,
     test_rejoin_denied_when_still_broken,
     test_ledger_completeness,
     test_diagnostician_disabled_and_stub_agree,

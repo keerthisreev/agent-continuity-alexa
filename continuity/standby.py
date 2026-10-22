@@ -30,6 +30,12 @@ class StandbyController:
         Raises UnknownSchemaVersion (fail closed) if the package schema
         is unreadable. `package` may be None (no checkpoint yet): the
         standby then starts the stage fresh.
+
+        Restoration is real, not ceremonial: the package is handed to the
+        standby agent's restore() hook so it resumes from the failed
+        incident's verified state instead of re-running the stage blind.
+        Agents without a restore() hook keep the old behavior (fresh
+        execution + idempotent apply).
         """
         with self._lock:
             if package is not None:
@@ -47,6 +53,10 @@ class StandbyController:
                     raise
             self.active = True
             self.package = package
+            if package is not None:
+                restore = getattr(self.agent, "restore", None)
+                if callable(restore):
+                    restore(package)
 
     def stand_down(self) -> None:
         with self._lock:

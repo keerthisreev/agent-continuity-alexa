@@ -135,7 +135,7 @@ def _summarize(kind: str, detail: dict) -> str:
     if kind == "diagnostician_note":
         return str(d.get("note"))[:110]
     if kind == "rejoin_complete":
-        return f"{d.get('agent')} at epoch {d.get('new_epoch')}"
+        return f"{d.get('agent')} at generation {d.get('new_generation')}"
     if kind == "failure_window_open":
         return str(d.get("reason"))[:90]
     return ""

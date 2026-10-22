@@ -129,7 +129,7 @@ def test_checkpoint_unknown_version_rejected():
     bad = ContinuityPackage(agent_id="remediation", role="remediation",
                             incident_id="INC-801", tick=9, schema_version=999,
                             planned_action_ids=["INC-801:remediation:0:rollback:payments-api"])
-    layer._checkpoints["remediation"] = bad
+    layer._checkpoints[("remediation", "INC-801")] = bad
     primaries["remediation"].backend.mode = "llm_down"
     ctx = process_incident(layer, store, primaries, incident("INC-801"))
     assert ctx["remediation"]["remediation"] is not None  # standby served

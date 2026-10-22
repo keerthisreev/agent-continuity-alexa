@@ -169,7 +169,7 @@ class NemotronDiagnostician:
             "human_review": [
                 {"incident": h.get("incident"), "reason": h.get("reason")}
                 for h in (report.get("human_review") or [])],
-            "recovery": ("primary rejoined at new epoch"
+            "recovery": ("primary rejoined at new generation"
                          if any(e.get("kind") == "rejoin_complete"
                                 for e in (report.get("timeline") or []))
                          else "standby remained authoritative"),
