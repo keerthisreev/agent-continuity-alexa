@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from test_continuity import make_world, process_incident, incident, kinds
 from continuity.diagnostician import (default_diagnostician, StubDiagnostician,
                                       NemotronDiagnostician)
+from continuity.nemotron import live_enabled
 
 FAILURES = ("hard", "silent", "gray")
 TITLES = {
@@ -192,16 +193,18 @@ def main() -> int:
                     default="auto")
     ap.add_argument("--live", action="store_true",
                     help="explicit opt-in for live Nebius calls (requires "
-                         "NEBIUS_API_KEY); without it everything runs offline "
+                         "NEBIUS_API_KEY); CONTINUITY_LIVE=1 works too. "
+                         "Without either, everything runs offline "
                          "on deterministic static probes and the stub")
     args = ap.parse_args()
 
-    diagnostician, diag_label = pick_diagnostician(args.diagnostician,
-                                                  args.live)
+    # --live flag OR CONTINUITY_LIVE=1: the documented alternatives agree.
+    live = args.live or live_enabled()
+    diagnostician, diag_label = pick_diagnostician(args.diagnostician, live)
     failures = FAILURES if args.failure == "all" else (args.failure,)
 
     print("AGENT CONTINUITY LAYER -- brutal proof")
-    print(f"mode: {'LIVE (Nebius Token Factory)' if args.live else 'OFFLINE (deterministic, zero network calls)'}")
+    print(f"mode: {'LIVE (Nebius Token Factory)' if live else 'OFFLINE (deterministic, zero network calls)'}")
     print(f"diagnostician: {diag_label}")
     print("sentinel: deterministic (authoritative with diagnostician disabled)")
     print()
@@ -211,7 +214,7 @@ def main() -> int:
         print(TITLES[failure])
         print("-" * 64)
         layer, store, inc1, inc2, rejoined, narrative = run_scenario(
-            failure, diagnostician, args.live)
+            failure, diagnostician, live)
         for line in render_timeline(layer):
             print(line)
         for line in render_money_screen(layer, inc1, inc2, rejoined, narrative):

@@ -62,7 +62,8 @@ class NemotronClient:
                  circuit_breaker_open_s: float = None,
                  backoff_base_s: float = 0.5,
                  transport: Callable[[dict], str] = None,
-                 config: dict = None, logger=None):
+                 config: dict = None, logger=None,
+                 live: bool | None = None):
         cfg = config if config is not None else CONFIG
         self.api_key = api_key or os.environ.get("NEBIUS_API_KEY", "")
         self.base_url = (base_url or _cfg_get(cfg, "nemotron", "base_url",
@@ -81,6 +82,11 @@ class NemotronClient:
             else _cfg_get(cfg, "nemotron", "circuit_breaker_open_s", default=60))
         self._backoff_base_s = backoff_base_s
         self._transport = transport or self._requests_transport
+        # Transport-boundary enforcement (Gap A): the real HTTP transport
+        # requires explicit live opt-in. An explicitly injected transport
+        # (mocked in tests) is always allowed — it cannot spend credit.
+        self._uses_real_transport = transport is None
+        self._live = live_enabled(live)
         self.logger = logger or ContinuityLogger(name="nemotron")
         self._lock = threading.RLock()
         self._consecutive_failures = 0
@@ -98,7 +104,17 @@ class NemotronClient:
     def chat(self, messages: List[dict], temperature: float = 0.2,
              max_tokens: int = 300) -> str:
         """Return the model's reply text. Raises on any failure (after
-        retries); the circuit breaker short-circuits while open."""
+        retries); the circuit breaker short-circuits while open.
+
+        Credit-safety: the real HTTP transport refuses to run without
+        explicit live opt-in (live=True or CONTINUITY_LIVE=1), even if a
+        key is present. Injected (mock) transports are unaffected.
+        """
+        if self._uses_real_transport and not self._live:
+            raise RuntimeError(
+                "refusing live Nebius call: explicit opt-in required "
+                "(NemotronClient(live=True) or CONTINUITY_LIVE=1); "
+                "key presence alone never authorizes network use")
         with self._lock:
             if time.monotonic() < self._breaker_open_until:
                 raise _CircuitOpen("circuit breaker open")

@@ -140,9 +140,10 @@ class NemotronCanaryGenerator:
     """
 
     def __init__(self, client=None, count: int = 3, config: dict = None,
-                 logger=None):
+                 logger=None, live: bool | None = None):
         from .nemotron import NemotronClient
-        self._client = client or NemotronClient(config=config, logger=logger)
+        self._client = client or NemotronClient(config=config, logger=logger,
+                                                live=live)
         self.count = count
         self._fallback = StaticCanaryGenerator()
         self.logger = getattr(self._client, "logger", None)
@@ -229,7 +230,7 @@ def default_canary_generator(config: dict = None,
     path (used by demo.py --live and the controlled live test only).
     """
     if live_enabled(live):
-        gen = NemotronCanaryGenerator(config=config)
+        gen = NemotronCanaryGenerator(config=config, live=live)
         if gen.available:
             return gen
     return StaticCanaryGenerator()

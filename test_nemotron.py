@@ -240,32 +240,61 @@ def test_default_diagnostician_still_key_gated():
     print("PASS diagnostician: stub by default; Nemotron only with live opt-in + key")
 
 
-def test_full_world_makes_zero_network_calls_with_key_set():
-    # The strongest guarantee: with a (fake) key in the environment and the
-    # network rigged to explode, the full test world still runs clean.
-    import socket
+def test_full_world_makes_zero_http_calls_with_key_set():
+    # Strong tripwire (Gap B): patch requests.post at the transport
+    # boundary, run the whole offline world with a (fake) key set, and
+    # assert the HTTP call count stays exactly zero.
+    from unittest import mock
+    import continuity.nemotron as nemotron_mod
     old = _no_key_env()
     live_old = _no_live_env()
-    real_create = socket.create_connection
+    calls = []
 
     def _boom(*a, **k):
-        raise AssertionError("network call attempted in offline mode")
+        calls.append((a, k))
+        raise AssertionError("HTTP call attempted in offline mode")
 
     try:
         os.environ["NEBIUS_API_KEY"] = "<redacted>"
-        socket.create_connection = _boom
-        layer, store, primaries = make_world()
-        assert layer.canary_generator.source == "static"
-        from test_continuity import process_incident, incident
-        process_incident(layer, store, primaries, incident("INC-9001"))
-        kinds = [e["kind"] for e in layer.ledger.timeline]
-        assert "canary_probes_generated" in kinds
+        with mock.patch.object(nemotron_mod.requests, "post", _boom):
+            layer, store, primaries = make_world()
+            assert layer.canary_generator.source == "static"
+            from test_continuity import process_incident, incident
+            process_incident(layer, store, primaries, incident("INC-9001"))
+            kinds = [e["kind"] for e in layer.ledger.timeline]
+            assert "canary_probes_generated" in kinds
+        assert calls == [], f"HTTP calls attempted: {len(calls)}"
     finally:
-        socket.create_connection = real_create
         _restore_key(old)
         _restore_live(live_old)
         os.environ.pop("NEBIUS_API_KEY", None)
-    print("PASS credit-safety: full world, key set, network rigged -> zero calls")
+    print("PASS credit-safety: full world, key set, requests.post tripwire -> zero HTTP calls")
+
+
+def test_direct_client_construction_still_gated():
+    # Gap A: the transport boundary enforces opt-in even when the
+    # factories are bypassed. Mocked transports stay usable offline.
+    old = _no_key_env()
+    live_old = _no_live_env()
+    try:
+        os.environ["NEBIUS_API_KEY"] = "<redacted>"
+        direct = NemotronClient()
+        assert direct.available
+        try:
+            direct.chat([{"role": "user", "content": "hi"}])
+            raise AssertionError("direct real-transport call must be refused")
+        except RuntimeError as exc:
+            assert "opt-in" in str(exc), str(exc)
+        mock_ok = NemotronClient(transport=lambda body: "mock-reply")
+        assert mock_ok.chat([{"role": "user", "content": "hi"}]) == "mock-reply"
+        live_mock = NemotronClient(transport=lambda body: "mock-reply",
+                                   live=True)
+        assert live_mock.chat([{"role": "user", "content": "hi"}]) == "mock-reply"
+    finally:
+        _restore_key(old)
+        _restore_live(live_old)
+        os.environ.pop("NEBIUS_API_KEY", None)
+    print("PASS credit-safety: direct client construction gated at transport boundary")
 
 
 if __name__ == "__main__":
@@ -279,5 +308,6 @@ if __name__ == "__main__":
     test_client_platform_facts()
     test_client_request_path()
     test_default_diagnostician_still_key_gated()
-    test_full_world_makes_zero_network_calls_with_key_set()
-    print("\n11/11 nemotron rework tests passed")
+    test_full_world_makes_zero_http_calls_with_key_set()
+    test_direct_client_construction_still_gated()
+    print("\n12/12 nemotron rework tests passed")

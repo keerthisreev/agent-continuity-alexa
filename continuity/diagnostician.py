@@ -80,14 +80,15 @@ class NemotronDiagnostician:
                  retries: int = None, circuit_breaker_failures: int = None,
                  circuit_breaker_open_s: float = None,
                  backoff_base_s: float = 0.5,
-                 transport=None, config: dict = None, logger=None):
+                 transport=None, config: dict = None, logger=None,
+                 live: bool | None = None):
         self._client = NemotronClient(
             api_key=api_key, base_url=base_url, model=model,
             timeout_s=timeout_s, retries=retries,
             circuit_breaker_failures=circuit_breaker_failures,
             circuit_breaker_open_s=circuit_breaker_open_s,
             backoff_base_s=backoff_base_s, transport=transport,
-            config=config, logger=logger)
+            config=config, logger=logger, live=live)
         self.logger = self._client.logger
 
     @property
@@ -191,7 +192,7 @@ def default_diagnostician(config: dict = None,
     key presence alone never spends credit.
     """
     if live_enabled(live):
-        candidate = NemotronDiagnostician(config=config)
+        candidate = NemotronDiagnostician(config=config, live=live)
         if candidate.available:
             return candidate
     return StubDiagnostician()
