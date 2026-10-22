@@ -46,8 +46,11 @@ INCIDENTS = [incident("INC-1042"), incident("INC-1043"), incident("INC-1044")]
 ROLES = ("triage", "diagnosis", "remediation", "escalation")
 
 
-def make_world(diagnostician=None):
-    layer = ContinuityLayer(diagnostician=diagnostician)
+def make_world(diagnostician=None, live=False):
+    # Tests are ALWAYS offline: live defaults to False here regardless of
+    # environment, so a stray NEBIUS_API_KEY can never turn the suite into
+    # live inference calls.
+    layer = ContinuityLayer(diagnostician=diagnostician, live=live)
     store = IncidentStore(layer.fencing, layer.ledger)
     primaries = {
         "triage": TriageAgent(),

@@ -30,6 +30,21 @@ import requests
 from .config import CONFIG, get as _cfg_get
 from .log import ContinuityLogger
 
+
+def live_enabled(explicit: bool | None = None) -> bool:
+    """Explicit opt-in for live Nebius Token Factory calls.
+
+    Key presence NEVER implies live mode: a $25 credit must not be spent
+    by accident. Live calls happen only when the caller passes live=True
+    or sets CONTINUITY_LIVE=1/true/yes/on in the environment. Everything
+    else — tests, demos, the dashboard — runs fully offline on the
+    deterministic static probes and stub diagnostician.
+    """
+    if explicit is not None:
+        return bool(explicit)
+    return os.environ.get("CONTINUITY_LIVE", "").strip().lower() in (
+        "1", "true", "yes", "on")
+
 DEFAULT_BASE_URL = "https://api.tokenfactory.nebius.com/v1"
 DEFAULT_MODEL = "nvidia/Nemotron-3.5-Super-VL"
 

@@ -45,8 +45,19 @@ def _restore_key(old):
         os.environ["NEBIUS_API_KEY"] = old
 
 
+def _no_live_env():
+    old = os.environ.pop("CONTINUITY_LIVE", None)
+    return old
+
+
+def _restore_live(old):
+    if old is not None:
+        os.environ["CONTINUITY_LIVE"] = old
+
+
 def test_generator_falls_back_without_key():
     old = _no_key_env()
+    live_old = _no_live_env()
     try:
         gen = default_canary_generator()
         assert isinstance(gen, StaticCanaryGenerator), type(gen)
@@ -56,20 +67,42 @@ def test_generator_falls_back_without_key():
         assert tasks[0].oracle is ORACLES["remediation"]
     finally:
         _restore_key(old)
+        _restore_live(live_old)
     print("PASS generator: no key -> static fallback, deterministic oracle")
 
 
-def test_generator_uses_nemotron_with_key():
+def test_generator_stays_offline_with_key_unless_live():
+    # Credit-safety: key presence alone must NEVER select the network path.
     old = _no_key_env()
+    live_old = _no_live_env()
     try:
         os.environ["NEBIUS_API_KEY"] = "<redacted>"
         gen = default_canary_generator()
-        assert isinstance(gen, NemotronCanaryGenerator), type(gen)
-        assert gen.source == "nemotron" and gen.available
+        assert isinstance(gen, StaticCanaryGenerator), type(gen)
+        assert gen.source == "static"
     finally:
         _restore_key(old)
+        _restore_live(live_old)
         os.environ.pop("NEBIUS_API_KEY", None)
-    print("PASS generator: key set -> NemotronCanaryGenerator selected")
+    print("PASS generator: key set but no live opt-in -> stays static (offline)")
+
+
+def test_generator_uses_nemotron_with_live_opt_in():
+    old = _no_key_env()
+    live_old = _no_live_env()
+    try:
+        os.environ["NEBIUS_API_KEY"] = "<redacted>"
+        gen = default_canary_generator(live=True)
+        assert isinstance(gen, NemotronCanaryGenerator), type(gen)
+        assert gen.source == "nemotron" and gen.available
+        os.environ["CONTINUITY_LIVE"] = "1"
+        gen2 = default_canary_generator()
+        assert isinstance(gen2, NemotronCanaryGenerator), type(gen2)
+    finally:
+        _restore_key(old)
+        _restore_live(live_old)
+        os.environ.pop("NEBIUS_API_KEY", None)
+    print("PASS generator: live=True or CONTINUITY_LIVE=1 + key -> Nemotron selected")
 
 
 def test_nemotron_generates_three_scenarios():
@@ -191,20 +224,54 @@ def test_client_request_path():
 
 
 def test_default_diagnostician_still_key_gated():
+    # Key alone -> stub. Live opt-in + key -> Nemotron. Never live by accident.
     old = _no_key_env()
+    live_old = _no_live_env()
     try:
         assert isinstance(default_diagnostician(), StubDiagnostician)
         os.environ["NEBIUS_API_KEY"] = "<redacted>"
-        assert isinstance(default_diagnostician(), NemotronDiagnostician)
+        assert isinstance(default_diagnostician(), StubDiagnostician)
+        assert isinstance(default_diagnostician(live=True),
+                          NemotronDiagnostician)
     finally:
         _restore_key(old)
+        _restore_live(live_old)
         os.environ.pop("NEBIUS_API_KEY", None)
-    print("PASS diagnostician: stub without key, Nemotron with key")
+    print("PASS diagnostician: stub by default; Nemotron only with live opt-in + key")
+
+
+def test_full_world_makes_zero_network_calls_with_key_set():
+    # The strongest guarantee: with a (fake) key in the environment and the
+    # network rigged to explode, the full test world still runs clean.
+    import socket
+    old = _no_key_env()
+    live_old = _no_live_env()
+    real_create = socket.create_connection
+
+    def _boom(*a, **k):
+        raise AssertionError("network call attempted in offline mode")
+
+    try:
+        os.environ["NEBIUS_API_KEY"] = "<redacted>"
+        socket.create_connection = _boom
+        layer, store, primaries = make_world()
+        assert layer.canary_generator.source == "static"
+        from test_continuity import process_incident, incident
+        process_incident(layer, store, primaries, incident("INC-9001"))
+        kinds = [e["kind"] for e in layer.ledger.timeline]
+        assert "canary_probes_generated" in kinds
+    finally:
+        socket.create_connection = real_create
+        _restore_key(old)
+        _restore_live(live_old)
+        os.environ.pop("NEBIUS_API_KEY", None)
+    print("PASS credit-safety: full world, key set, network rigged -> zero calls")
 
 
 if __name__ == "__main__":
     test_generator_falls_back_without_key()
-    test_generator_uses_nemotron_with_key()
+    test_generator_stays_offline_with_key_unless_live()
+    test_generator_uses_nemotron_with_live_opt_in()
     test_nemotron_generates_three_scenarios()
     test_generated_probes_judged_deterministically()
     test_generator_never_raises_on_garbage()
@@ -212,4 +279,5 @@ if __name__ == "__main__":
     test_client_platform_facts()
     test_client_request_path()
     test_default_diagnostician_still_key_gated()
-    print("\n9/9 nemotron rework tests passed")
+    test_full_world_makes_zero_network_calls_with_key_set()
+    print("\n11/11 nemotron rework tests passed")

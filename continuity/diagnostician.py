@@ -10,10 +10,13 @@ Two Nemotron jobs (both advisory, both visible in the demo):
   2. incident_narrative() -- a 2-3 sentence forensic summary for the human
      reviewer, written from the failure window + affected-work map
 
-When the NEBIUS_API_KEY environment variable is set, both go through the
-Nebius Token Factory OpenAI-compatible chat-completions endpoint. When the
-key is absent (all tests, all offline builds) the deterministic stub answers.
-No network call is ever made without the key.
+When live mode is EXPLICITLY enabled (live=True or CONTINUITY_LIVE=1)
+and the NEBIUS_API_KEY environment variable is set, both go through the
+Nebius Token Factory OpenAI-compatible chat-completions endpoint. Otherwise
+— all tests, all default demos, the dashboard — the deterministic stub
+answers. Key presence alone never enables network calls: a credit must not
+be spent by accident. No network call is ever made without explicit live
+opt-in.
 
 Reliability contract:
   - diagnose()/incident_narrative() NEVER raise: every failure degrades to
@@ -25,7 +28,7 @@ from __future__ import annotations
 
 from typing import List, Protocol
 
-from .nemotron import NemotronClient
+from .nemotron import NemotronClient, live_enabled
 
 
 class Diagnostician(Protocol):
@@ -180,7 +183,15 @@ class NemotronDiagnostician:
         )
 
 
-def default_diagnostician(config: dict = None) -> Diagnostician:
-    """Nemotron via Nebius when NEBIUS_API_KEY is set, stub otherwise."""
-    candidate = NemotronDiagnostician(config=config)
-    return candidate if candidate.available else StubDiagnostician()
+def default_diagnostician(config: dict = None,
+                          live: bool | None = None) -> Diagnostician:
+    """Nemotron via Nebius only with explicit live opt-in AND the key set.
+
+    Otherwise the deterministic stub. See live_enabled() for the rule:
+    key presence alone never spends credit.
+    """
+    if live_enabled(live):
+        candidate = NemotronDiagnostician(config=config)
+        if candidate.available:
+            return candidate
+    return StubDiagnostician()
