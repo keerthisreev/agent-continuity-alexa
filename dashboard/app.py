@@ -23,7 +23,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from flask import Flask, jsonify, render_template_string
+from flask import Flask, jsonify, render_template_string, request
 
 from test_continuity import make_world, incident
 
@@ -62,7 +62,8 @@ PAGE = """<!doctype html>
 <body>
 <h1>AGENT CONTINUITY LAYER <span class="tick">-- live</span></h1>
 <div class="sub">the undercover agent is always watching &middot; scenario: <span id="scen"></span>
- &middot; <a href="/showcase" style="color:#58a6ff">scenario showcase</a></div>
+ &middot; <a href="/showcase" style="color:#58a6ff">scenario showcase</a>
+ &middot; <a href="/sim" style="color:#58a6ff">simulated Alexa+ experience</a></div>
 <div class="grid">
   <div class="panel"><h2>Role health</h2><div id="roles"></div></div>
   <div class="panel"><h2>Affected work</h2><div id="affected"></div></div>
@@ -367,6 +368,276 @@ SHOWCASE_404_PAGE = """<!doctype html>
 """
 
 
+# ---------------------------------------------------------------------------
+# Simulated Alexa+ experience: a chat-style front end for the reliability
+# layer. The chat and intent mapping are simulated (deterministic, offline);
+# the engine underneath is the real continuity layer. Additive: nothing
+# above this line changes behavior.
+# ---------------------------------------------------------------------------
+
+SIM_PAGE = """<!doctype html>
+<html><head><meta charset="utf-8">
+<title>Simulated Alexa+ experience -- Agent Continuity Layer</title>
+<style>
+  body { background:#0d1117; color:#e6edf3; font-family:ui-monospace,Menlo,Consolas,monospace;
+         margin:0; padding:18px; font-size:15px; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  .sub { color:#8b949e; margin-bottom:6px; line-height:1.6; max-width:900px; }
+  .sub a { color:#58a6ff; }
+  .honest { color:#d29922; font-size:13px; margin-bottom:14px; max-width:900px; line-height:1.6; }
+  .guide { background:#161b22; border:1px solid #30363d; border-radius:8px; padding:12px;
+           margin-bottom:14px; max-width:900px; }
+  .guide h2 { font-size:13px; text-transform:uppercase; letter-spacing:1px; color:#8b949e; margin:0 0 8px; }
+  .guide ol { margin:0; padding-left:20px; line-height:1.7; color:#c9d1d9; }
+  #chat { max-width:900px; }
+  .msg { margin:10px 0; padding:10px 14px; border-radius:8px; line-height:1.65; }
+  .user { background:#1c2b4a; border:1px solid #2f4a7a; margin-left:60px; white-space:pre-wrap; }
+  .bot { background:#161b22; border:1px solid #30363d; margin-right:40px; white-space:pre-wrap; }
+  .contrast { background:#161b22; border:1px solid #d29922; border-radius:8px; padding:12px;
+              margin:10px 40px 10px 0; }
+  .contrast h3 { margin:0 0 10px; font-size:16px; color:#f0b429; }
+  .cgrid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .card { border-radius:6px; padding:10px 12px; }
+  .card h4 { margin:0 0 8px; font-size:13px; text-transform:uppercase; letter-spacing:1px; }
+  .card ul { margin:0; padding-left:18px; line-height:1.7; }
+  .outside { background:#21262d; } .outside h4 { color:#8b949e; }
+  .sentinelc { background:#3d1f1f; border:1px solid #e74c3c; } .sentinelc h4 { color:#ff7b72; }
+  .punchline { margin-top:10px; color:#f0b429; font-weight:bold; line-height:1.6; }
+  .resumebox { background:#12261c; border:1px solid #2ecc71; border-radius:8px; padding:12px;
+               margin:10px 40px 10px 0; }
+  .resumebox h3 { margin:0 0 8px; color:#2ecc71; font-size:16px; }
+  .reportbox { background:#161b22; border:1px solid #58a6ff; border-radius:8px; padding:12px;
+               margin:10px 40px 10px 0; }
+  .reportbox h3 { margin:0 0 10px; color:#58a6ff; font-size:16px; }
+  .buckets { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:10px; }
+  .bucket { border-radius:6px; padding:10px 12px; }
+  .bucket h4 { margin:0 0 8px; font-size:13px; text-transform:uppercase; letter-spacing:1px; }
+  .bucket ul { margin:0; padding-left:18px; }
+  .b-ok { background:#12261c; border:1px solid #2ecc71; } .b-ok h4 { color:#2ecc71; }
+  .b-rec { background:#1c2b4a; border:1px solid #58a6ff; } .b-rec h4 { color:#58a6ff; }
+  .b-rev { background:#3d1f1f; border:1px solid #e74c3c; } .b-rev h4 { color:#ff7b72; }
+  .narr { border-left:3px solid #58a6ff; padding:8px 12px; margin:10px 0; line-height:1.6; color:#c9d1d9; }
+  pre.score { background:#0d1117; border:1px solid #30363d; border-radius:6px; padding:10px 12px;
+              overflow-x:auto; line-height:1.7; }
+  table.cmp { border-collapse:collapse; width:100%; margin:10px 0; }
+  table.cmp th, table.cmp td { text-align:left; padding:8px 10px; border:1px solid #30363d;
+                               vertical-align:top; line-height:1.6; }
+  table.cmp th { background:#21262d; }
+  .kv { color:#8b949e; }
+  #composer { max-width:900px; margin-top:14px; display:flex; gap:8px; }
+  #q { flex:1; background:#161b22; border:1px solid #30363d; border-radius:6px; color:#e6edf3;
+       padding:10px 12px; font-size:15px; font-family:inherit; }
+  button { background:#238636; border:none; border-radius:6px; color:#fff; padding:10px 16px;
+           font-size:14px; cursor:pointer; font-family:inherit; }
+  button.alt { background:#21262d; border:1px solid #30363d; }
+  .chips { max-width:900px; margin:10px 0; display:flex; flex-wrap:wrap; gap:8px; }
+  .chip { background:#161b22; border:1px solid #58a6ff; color:#58a6ff; border-radius:16px;
+          padding:6px 12px; font-size:13px; cursor:pointer; }
+  .tick { color:#8b949e; }
+</style></head>
+<body>
+<h1>SIMULATED ALEXA+ EXPERIENCE</h1>
+<div class="sub">A simulated conversational front-end for the <b>Agent Continuity Layer</b> —
+a reliability layer for agent workflows. &middot; <a href="/">live dashboard</a> &middot;
+<a href="/showcase">scenario showcase</a></div>
+<div class="honest">Honest simulation: the chat and intent mapping are simulated
+(deterministic keyword matching — no network, no model, no API keys). Everything underneath —
+the four-agent workflow, gray-failure detection, fencing, standby failover, checkpoints —
+is the real continuity engine, driven with zero mocks.</div>
+<div class="guide"><h2>Guided demo — the one beat to watch</h2>
+<ol>
+<li>"Investigate incident INC-1043 and prepare a remediation plan. Don't execute an unsafe action."</li>
+<li>"Inject a gray failure." — a <b>deterministic, preconfigured</b> fault: the scripted backend returns a plausible-but-wrong plan violating the invariant <i>never restart the database for this incident class</i>.</li>
+<li>"Continue." — watch the outside-view vs sentinel contrast, then the resume proof.</li>
+<li>"Test the fence." — the fenced primary retries with its revoked generation; the store rejects it.</li>
+<li>"What happened to my tasks?" — the three-bucket report + reliability scorecard (times in <b>ticks</b>, not seconds).</li>
+<li>"Run the ablation." — workflow alone vs workflow + layer, from real runs.</li>
+</ol>
+<div class="tick">Three fault scenarios: gray semantic violation · silent dependency failure · stale write from a fenced agent. Each states its enforced invariant up front — never generalized AI-failure detection.</div></div>
+<div id="chat"></div>
+<div class="chips">
+  <span class="chip" data-q="Investigate incident INC-1043 and prepare a remediation plan. Don't execute an unsafe action.">investigate INC-1043</span>
+  <span class="chip" data-q="Check the checkout service error rate.">check checkout</span>
+  <span class="chip" data-q="Probe the orders database for flaky dependencies.">probe database</span>
+  <span class="chip" data-q="Inject a gray failure.">inject gray failure</span>
+  <span class="chip" data-q="Inject a silent failure.">inject silent failure</span>
+  <span class="chip" data-q="Test the fence.">test the fence</span>
+  <span class="chip" data-q="Continue.">continue</span>
+  <span class="chip" data-q="What happened to my tasks?">what happened?</span>
+  <span class="chip" data-q="Run the ablation.">run ablation</span>
+</div>
+<div id="composer">
+  <input id="q" placeholder="Ask in plain language — e.g. investigate incident INC-1043…" autocomplete="off">
+  <button id="send">Send</button>
+</div>
+<script>
+let sessionId = null;
+const chat = document.getElementById('chat');
+function esc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function md(s){ return esc(s).replace(/\\*\\*([^*]+)\\*\\*/g, '<b>$1</b>'); }
+function addUser(t){
+  chat.insertAdjacentHTML('beforeend', `<div class="msg user">${md(t)}</div>`);
+}
+function addBot(html){
+  chat.insertAdjacentHTML('beforeend', `<div class="msg bot">${html}</div>`);
+  window.scrollTo(0, document.body.scrollHeight);
+}
+function addRaw(html){
+  chat.insertAdjacentHTML('beforeend', html);
+  window.scrollTo(0, document.body.scrollHeight);
+}
+function send(text){
+  const q = (text !== undefined ? text : document.getElementById('q').value).trim();
+  if(!q) return;
+  document.getElementById('q').value = '';
+  addUser(q);
+  fetch('/sim/api/message', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({session_id: sessionId, text: q})
+  }).then(r=>r.json()).then(d=>{
+    sessionId = d.session_id;
+    d.messages.forEach(m=>{
+      if(m.kind === 'text') addBot(md(m.text));
+      else addRaw(m.html);
+    });
+  });
+}
+document.getElementById('send').onclick = ()=>send();
+document.getElementById('q').addEventListener('keydown', e=>{ if(e.key==='Enter') send(); });
+document.querySelectorAll('.chip').forEach(c=>{ c.onclick = ()=>send(c.dataset.q); });
+addBot(md("Hi — I'm a **simulated** conversational front-end for the Agent Continuity Layer, a **reliability layer for agent workflows**. Give me an incident to investigate, e.g. **\\"Investigate incident INC-1043 and prepare a remediation plan.\\"**"));
+</script></body></html>
+"""
+
+
+def _sim_escape(text: str) -> str:
+    import html as _html
+    return _html.escape(text or "")
+
+
+def _sim_md(text: str) -> str:
+    import re as _re
+    return _re.sub(r"\*\*([^*]+)\*\*",
+                   lambda m: "<b>" + _sim_escape(m.group(1)) + "</b>",
+                   _sim_escape(text))
+
+
+def _render_sim_message(msg: dict) -> str:
+    """Render one SimSession message dict to HTML for the /sim page."""
+    kind = msg.get("kind")
+    if kind == "text":
+        return f'<div class="msg bot">{_sim_md(msg["text"])}</div>'
+    if kind == "contrast":
+        o, s = msg["outside"], msg["sentinel"]
+        fault = (f'<div class="tick" style="margin-bottom:10px">'
+                 f'{_sim_escape(msg.get("fault_label", ""))}<br>Enforced invariant(s): '
+                 f'{_sim_escape("; ".join(msg.get("invariants", [])))}</div>'
+                 if msg.get("fault_label") else "")
+        return (
+            '<div class="contrast">'
+            f'<h3>{_sim_escape(msg["title"])}</h3>'
+            + fault +
+            '<div class="cgrid">'
+            f'<div class="card outside"><h4>{_sim_escape(o["heading"])}</h4><ul>'
+            + "".join(f"<li>{_sim_escape(x)}</li>" for x in o["lines"]) +
+            '</ul></div>'
+            f'<div class="card sentinelc"><h4>{_sim_escape(s["heading"])}</h4><ul>'
+            + "".join(f"<li>{_sim_escape(x)}</li>" for x in s["lines"]) +
+            '</ul></div></div>'
+            f'<div class="punchline">{_sim_escape(msg["punchline"])}</div></div>')
+    if kind == "resume":
+        rows = [
+            ("incident", msg["incident"]),
+            ("resumed from tick", f"t+{msg['resumed_from_tick']:04d}"
+             if msg["resumed_from_tick"] is not None else "-"),
+            ("already completed (skipped, not redone)",
+             ", ".join(msg["already_completed"]) or "-"),
+            ("fencing generation (remediation)", str(msg["generation"])),
+            ("duplicate writes prevented", str(msg["duplicates_prevented"])),
+        ]
+        return (
+            '<div class="resumebox"><h3>Resume, not a restart</h3>'
+            f'<div style="margin-bottom:8px;line-height:1.6">{_sim_escape(msg["text"])}</div>'
+            '<table class="cmp">' +
+            "".join(f'<tr><td class="kv">{_sim_escape(k)}</td>'
+                    f'<td>{_sim_escape(str(v))}</td></tr>' for k, v in rows) +
+            '</table></div>')
+    if kind == "fence_test":
+        inv = "".join(f"<li>{_sim_escape(i)}</li>" for i in msg["invariants"])
+        verdict = ("<b style='color:#2ecc71'>REJECTED</b>" if msg["rejected"]
+                   else "<b style='color:#e74c3c'>ACCEPTED (bug!)</b>")
+        return (
+            '<div class="resumebox"><h3>Stale write — fence test</h3>'
+            f'<div class="tick" style="margin-bottom:8px">{_sim_escape(msg["honest_label"])}</div>'
+            f'<div style="margin-bottom:8px">Enforced invariant(s):<ul>{inv}</ul></div>'
+            '<table class="cmp">'
+            f'<tr><td class="kv">attempted generation (fenced primary)</td><td>{msg["attempted_generation"]}</td></tr>'
+            f'<tr><td class="kv">current generation</td><td>{msg["current_generation"]}</td></tr>'
+            f'<tr><td class="kv">action attempted</td><td>{_sim_escape(msg["action"])}</td></tr>'
+            f'<tr><td class="kv">verdict</td><td>{verdict}</td></tr>'
+            + (f'<tr><td class="kv">rejection reason</td><td>{_sim_escape(msg["reason"])}</td></tr>'
+               if msg["rejected"] else "") +
+            '</table></div>')
+    if kind == "report":
+        b = msg["buckets"]
+        def _bucket(title, css, items, extra=""):
+            inner = ("<ul>" + "".join(f"<li>{_sim_escape(i)}</li>" for i in items)
+                     + "</ul>") if items else '<span class="tick">—</span>'
+            return (f'<div class="bucket {css}"><h4>{title}</h4>{inner}{extra}</div>')
+        reasons = "".join(
+            f'<div class="kv">⚠ {_sim_escape(i)}: {_sim_escape(r)}</div>'
+            for i, r in msg["review_reasons"].items())
+        return (
+            '<div class="reportbox"><h3>What happened to your tasks</h3>'
+            '<div class="buckets">'
+            + _bucket("Completed clean", "b-ok", b["completed_clean"])
+            + _bucket("Recovered via standby + checkpoint", "b-rec",
+                      b["recovered_via_standby"])
+            + _bucket("Needs human review", "b-rev",
+                      b["needs_human_review"], reasons) +
+            '</div>'
+            f'<div class="narr">{_sim_escape(msg["narrative"])}</div>'
+            f'<pre class="score">{_sim_escape(chr(10).join(msg["scorecard_lines"]))}</pre>'
+            '</div>')
+    if kind == "ablation":
+        c = msg["comparison"]
+        rows = "".join(
+            f'<tr><td class="kv"><b>{_sim_escape(r["aspect"])}</b></td>'
+            f'<td>{_sim_escape(r["baseline"])}</td>'
+            f'<td>{_sim_escape(r["protected"])}</td></tr>'
+            for r in c["rows"])
+        return (
+            '<div class="reportbox"><h3>Ablation: workflow alone vs '
+            'workflow + continuity layer</h3>'
+            f'<div class="tick" style="margin-bottom:8px">incident {c["incident_id"]} · '
+            f'failure {c["failure"]} (deterministic, preconfigured scripted fault) · '
+            'same agents, same steps, same scripted outputs — the only '
+            'difference is the layer. An ablation, not a competitor comparison.</div>'
+            '<table class="cmp"><tr><th></th><th>Workflow alone</th>'
+            '<th>Workflow + layer</th></tr>' + rows + '</table>'
+            f'<pre class="score">{_sim_escape(chr(10).join(_scorecard_render_text(c["scorecard"])))}</pre>'
+            '</div>')
+    return f'<div class="msg bot">{_sim_escape(str(msg))}</div>'
+
+
+def _scorecard_render_text(card):
+    from sim.scorecard import render_text
+    return render_text(card)
+
+
+_SIM_SESSIONS: dict = {}
+
+
+def _sim_get_session(session_id):
+    import uuid as _uuid
+    from sim.alexa_plus_sim import SimSession
+    if not session_id or session_id not in _SIM_SESSIONS:
+        session_id = _uuid.uuid4().hex[:12]
+        _SIM_SESSIONS[session_id] = SimSession()
+    return session_id, _SIM_SESSIONS[session_id]
+
+
+
 def create_app(layer=None, scenario: str = "gray", step_delay: float = 0.6,
                autostart: bool = True):
     """Build the Flask app. If `layer` is None, a demo world is built and
@@ -453,6 +724,30 @@ def create_app(layer=None, scenario: str = "gray", step_delay: float = 0.6,
             return render_template_string(SHOWCASE_404_PAGE), 404
         result = run_showcase_scenario(name)
         return render_template_string(SHOWCASE_RESULT_PAGE, result=result)
+
+    @app.get("/sim")
+    def sim_page():
+        return render_template_string(SIM_PAGE)
+
+    @app.post("/sim/api/message")
+    def sim_message():
+        data = request.get_json(force=True) or {}
+        session_id, session = _sim_get_session(data.get("session_id"))
+        text = (data.get("text") or "").strip()
+        if not text:
+            return jsonify({"session_id": session_id, "messages": []})
+        try:
+            outgoing = session.handle(text)
+        except Exception as exc:  # noqa: BLE001 - the sim must never 500
+            outgoing = [{"kind": "text",
+                         "text": f"Something went wrong in the sim: {exc}. "
+                                 "Try 'reset' for a fresh session."}]
+        return jsonify({
+            "session_id": session_id,
+            "messages": [{"kind": m.get("kind", "text"),
+                          "html": _render_sim_message(m),
+                          "text": m.get("text", "")} for m in outgoing],
+        })
 
     return app
 
