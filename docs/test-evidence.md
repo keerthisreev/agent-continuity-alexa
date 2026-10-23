@@ -1,10 +1,9 @@
 # Test evidence — Alexa+ submission
 
 - Date: 2026-10-22 (evening, America/Chicago)
-- Commit: 2597e97 (Honest restart proof + /sim first screen + submission docs)
-- Branch: feature/honest-restart (PR to follow; merges to main)
+- Branch: feature/booking-flow (PR #6; merges to main)
 - Command: `for t in test_continuity test_robust test_nemotron test_mcp test_showcase test_sim test_journal; do python3 $t.py; done`
-- Environment: clean venv, Python 3.12.3, with flask, mcp>=2.0, pyyaml, requests installed — **zero skipped tests** (the dashboard and MCP checks that skip without optional deps all executed)
+- Environment: clean venv, Python 3.12.3, with flask, mcp>=2.0, pyyaml, requests installed — **zero skipped tests**
 - Also offline: NEBIUS_API_KEY unset, CONTINUITY_LIVE unset; no network; deterministic (no randomness)
 
 ## Full output
@@ -27,12 +26,12 @@ PASS nemotron seam: stub offline, live client ready for her key
 13/13 tests passed
 
 === test_robust ===
-127.0.0.1 - - [22/Oct/2026 19:29:52] "GET / HTTP/1.1" 200 -
-127.0.0.1 - - [22/Oct/2026 19:29:52] "GET /api/health HTTP/1.1" 200 -
-127.0.0.1 - - [22/Oct/2026 19:29:52] "GET /api/timeline?limit=10 HTTP/1.1" 200 -
-127.0.0.1 - - [22/Oct/2026 19:29:52] "GET /api/affected HTTP/1.1" 200 -
-127.0.0.1 - - [22/Oct/2026 19:29:52] "GET /api/money HTTP/1.1" 200 -
-127.0.0.1 - - [22/Oct/2026 19:29:52] "GET /api/report HTTP/1.1" 200 -
+127.0.0.1 - - [22/Oct/2026 19:53:12] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [22/Oct/2026 19:53:12] "GET /api/health HTTP/1.1" 200 -
+127.0.0.1 - - [22/Oct/2026 19:53:12] "GET /api/timeline?limit=10 HTTP/1.1" 200 -
+127.0.0.1 - - [22/Oct/2026 19:53:12] "GET /api/affected HTTP/1.1" 200 -
+127.0.0.1 - - [22/Oct/2026 19:53:12] "GET /api/money HTTP/1.1" 200 -
+127.0.0.1 - - [22/Oct/2026 19:53:12] "GET /api/report HTTP/1.1" 200 -
 PASS config: defaults reproduce behavior; YAML overrides merge
 PASS threaded smoke: 4x25 invocations, no lost updates, no duplicate effects
 PASS checkpoint versioning: unknown schema rejected, failover continues fresh
@@ -105,8 +104,9 @@ PASS chat: 'run the ablation' returns the live comparison
 PASS ablation: silent failure -> replayed by standby
 PASS incident view: standby_activated present in incident timeline
 PASS copy: no $20K language; framed as a reliability layer
+PASS booking: advertised utterance -> narrated recovery + receipt
 
-17/17 sim tests passed
+18/18 sim tests passed
 
 === test_journal ===
 PASS journal: canonical operation fingerprint
@@ -115,6 +115,7 @@ PASS journal: key shared across operations -> rejected
 PASS gateway: agent never saw the receipt; retry from SQLite
 PASS gateway: stale generation rejected before provider dispatch
 PASS restart: provider state lost -> needs-review, no blind re-book
+PASS provider: stale/missing fencing token rejected, no effect
 PASS journal: intent -> commit lifecycle
 PASS journal: same key+payload retry reuses receipt, single effect
 PASS journal: same key + different payload -> conflict, never silent
@@ -126,6 +127,6 @@ PASS receipt: every field read off journal/ledger/store
 PASS offline: key in env cannot flip the journal scenario online
 PASS honesty: no banned language in new/changed files
 
-16/16 journal tests passed
+17/17 journal tests passed
 
 ```

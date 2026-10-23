@@ -494,6 +494,7 @@ is the real continuity engine, driven with zero mocks.</div>
 <div class="tick">Three fault scenarios: gray semantic violation · silent dependency failure · stale write from a fenced agent. Each states its enforced invariant up front — never generalized AI-failure detection.</div></div>
 <div id="chat"></div>
 <div class="chips">
+  <span class="chip" data-q="Arrange an airport pickup for 6:30 tomorrow, add it to my calendar, and send my partner the details.">book airport pickup</span>
   <span class="chip" data-q="Investigate incident INC-1043 and prepare a remediation plan. Don't execute an unsafe action.">investigate INC-1043</span>
   <span class="chip" data-q="Check the checkout service error rate.">check checkout</span>
   <span class="chip" data-q="Probe the orders database for flaky dependencies.">probe database</span>
@@ -551,7 +552,7 @@ function runChallenge(scenario){
     body: JSON.stringify({scenario: scenario})
   }).then(r=>r.json()).then(d=>{ addRaw(d.html); });
 }
-addBot(md("Hi — I'm a **simulated** front-end for the Agent Continuity Layer. **Try the big button above**: I'll book a ride, lose the acknowledgement, and show you why the retry doesn't book twice. Or give me an incident, e.g. **\\"Investigate incident INC-1043 and prepare a remediation plan.\\"**"));
+addBot(md("Hi — I'm a **simulated** front-end for the Agent Continuity Layer. **Try the big button above**: I'll book a ride, lose the acknowledgement, and show you why the retry doesn't book twice. Or type the booking request yourself: **\\"Arrange an airport pickup for 6:30 tomorrow, add it to my calendar, and send my partner the details.\\"**"));
 </script></body></html>
 """
 
@@ -715,6 +716,15 @@ def _render_sim_message(msg: dict) -> str:
             f'<pre class="score">{_sim_escape(chr(10).join(_render_scorecard_text(c["scorecard"])))}</pre>'
             + _render_receipt(msg["receipt"]) +
             '</div>')
+    if kind == "booking_receipt":
+        return (
+            '<div class="reportbox"><h3>'
+            f'{_sim_escape(msg.get("title", "Booking recovery"))}</h3>'
+            f'<div class="tick" style="margin-bottom:8px">incident {msg["incident_id"]} · '
+            'deterministic, preconfigured simulated fault (lost acknowledgement) · '
+            'every value below was read off the journal/ledger by sim/receipt.py.</div>'
+            + _render_receipt(msg["receipt"]) +
+            '</div>')
     return f'<div class="msg bot">{_sim_escape(str(msg))}</div>'
 
 
@@ -843,6 +853,9 @@ def create_app(layer=None, scenario: str = "gray", step_delay: float = 0.6,
             outgoing = [{"kind": "text",
                          "text": f"Something went wrong in the sim: {exc}. "
                                  "Try 'reset' for a fresh session."}]
+        for m in outgoing:
+            if m.get("kind") == "booking_receipt" and m.get("receipt"):
+                _CHALLENGE_RECEIPTS[m["incident_id"]] = m["receipt"]
         return jsonify({
             "session_id": session_id,
             "messages": [{"kind": m.get("kind", "text"),

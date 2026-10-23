@@ -68,16 +68,31 @@ class SimulatedProvider:
     """Deterministic simulated downstream services with idempotency-key
     support: the same key never creates a second effect. A None key means
     the caller passed no idempotency key -- every call creates an effect,
-    which is exactly the naive baseline's mistake."""
+    which is exactly the naive baseline's mistake.
 
-    def __init__(self):
+    Downstream fencing contract: when constructed with a fencing authority
+    + role, every execute() must carry the caller's fencing token, which
+    the provider validates BEFORE recording any effect. A rotation landing
+    between the gateway's pre-check and this call is still rejected here --
+    defense in depth, not check-then-act alone. Fail-closed: a missing or
+    stale token is rejected with no effect recorded.
+    """
+
+    def __init__(self, fencing=None, role: Optional[str] = None):
         self.effects: Dict[str, dict] = {}  # idempotency_key -> receipt
         self.calls = 0
         self.created_receipts: List[dict] = []
+        self.fencing = fencing
+        self.role = role
 
     def execute(self, kind: str, idempotency_key: Optional[str],
-                params: Dict[str, Any]):
+                params: Dict[str, Any],
+                fencing_token: Optional[int] = None):
         """Returns (receipt, created: bool)."""
+        if self.fencing is not None:
+            # The downstream boundary enforces the token first: no effect
+            # is recorded for a stale or missing generation.
+            self.fencing.check(self.role, fencing_token)
         self.calls += 1
         if idempotency_key is not None and idempotency_key in self.effects:
             return dict(self.effects[idempotency_key]), False
@@ -132,15 +147,17 @@ class ContinuityGateway:
     durable state, not from anyone's memory. The provider is never
     re-hit for a key it already honored.
 
-    Honest boundary: the fencing check runs BEFORE provider dispatch, but
-    check-then-act is not atomic against a real remote provider -- a
-    rotation landing between the check and the provider's execution could
-    still slip through. A production deployment needs the downstream
-    system to enforce fencing tokens (or the gateway to own the execution
-    boundary). Within this sim the provider is in-process; the store's
-    in-lock generation check remains the last line of defense for local
-    effect writes, and provider idempotency + journal reconciliation stay
-    separate protections -- fencing alone does not solve ack loss.
+    Honest boundary, now enforced at two layers: the gateway checks the
+    generation BEFORE dispatch, AND the provider validates the fencing
+    token on every call -- a rotation landing between the check and the
+    provider's execution is still rejected with no effect recorded.
+    (In-process the race cannot fire -- single-threaded -- so the sim
+    pins the downstream contract with a direct stale-token test; a real
+    deployment relies on the same contract at its own execution
+    boundary.) The store's in-lock generation check remains the last line
+    of defense for local effect writes, and provider idempotency +
+    journal reconciliation stay separate protections -- fencing alone
+    does not solve ack loss.
     """
 
     def __init__(self, provider: "SimulatedProvider",
@@ -208,7 +225,9 @@ class ContinuityGateway:
                     "verified": True, "needs_review": False,
                     "recovery_decision": final["recovery_decision"]}
         # First sight of this key: call the provider exactly once...
-        receipt, created = self.provider.execute(op["op"], key, op["params"])
+        receipt, created = self.provider.execute(
+            op["op"], key, op["params"],
+            fencing_token=self.fencing_generation)
         # ...persist the receipt BEFORE the ack goes out. If the process
         # dies or the ack is lost from here on, the journal still knows.
         self.journal.record_commit(op_id, receipt)
@@ -240,7 +259,9 @@ def run_protected_lost_ack(incident_id: str = "INC-1043",
                                          live=False)
     assert layer.live is False
     journal = _fresh_journal(journal_path)
-    provider = SimulatedProvider()
+    # The downstream boundary enforces fencing tokens too: the provider
+    # shares the layer's fencing authority for the remediation role.
+    provider = SimulatedProvider(fencing=layer.fencing, role="remediation")
     inc = {"id": incident_id, "service": "sim-user-task",
            "symptom": "multi-step user request", "severity": "P3"}
     ctx = {"incident": inc}

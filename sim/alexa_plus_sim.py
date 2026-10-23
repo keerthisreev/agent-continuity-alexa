@@ -105,20 +105,27 @@ FAULTS = {
 }
 
 HELP_TEXT = (
-    "I can run incident-response tasks under the continuity layer. Try:\n"
-    "- \"Investigate incident INC-1043 and prepare a remediation plan.\"\n"
-    "- \"Check the checkout service error rate.\"\n"
-    "- \"Probe the orders database for flaky dependencies.\"\n"
-    "After diagnosis, inject a fault then \"continue\": \"inject a gray "
-    "failure\" (semantic violation), \"inject a silent failure\" (dead "
-    "model dependency), or after a failover, \"test the fence\" (stale "
+    "I'm a **simulated** assistant front-end for the Agent Continuity Layer. "
+    "Try the main story:\\n"
+    "- \\\"Arrange an airport pickup for 6:30 tomorrow, add it to my calendar, "
+    "and send my partner the details.\\\"\\n"
+    "I'll book the ride, lose the acknowledgement (a deterministic, "
+    "preconfigured simulated fault), check the operation journal before "
+    "retrying, and prove there's exactly one booking.\\n"
+    "I also run incident-response tasks under the continuity layer:\\n"
+    "- \\\"Investigate incident INC-1043 and prepare a remediation plan.\\\"\\n"
+    "- \\\"Check the checkout service error rate.\\\"\\n"
+    "- \\\"Probe the orders database for flaky dependencies.\\\"\\n"
+    "After diagnosis, inject a fault then \\\"continue\\\": \\\"inject a gray "
+    "failure\\\" (semantic violation), \\\"inject a silent failure\\\" (dead "
+    "model dependency), or after a failover, \\\"test the fence\\\" (stale "
     "write from the fenced primary). All faults are deterministic and "
-    "preconfigured -- each names the invariant it violates up front.\n"
-    "\"What happened to my tasks?\" gives the forensic report; "
-    "\"run the ablation\" compares workflow-alone vs workflow+layer."
-    "\nBreak-it challenges (also as buttons on the /sim page): "
-    "\"lose the acknowledgement\" (commit-aware recovery), "
-    "\"propose an unsafe action\", \"stale-write challenge\"."
+    "preconfigured -- each names the invariant it violates up front.\\n"
+    "\\\"What happened to my tasks?\\\" gives the forensic report; "
+    "\\\"run the ablation\\\" compares workflow-alone vs workflow+layer."
+    "\\nBreak-it challenges (also as buttons on the /sim page): "
+    "\\\"lose the acknowledgement\\\" (commit-aware recovery), "
+    "\\\"propose an unsafe action\\\", \\\"stale-write challenge\\\"."
 )
 
 
@@ -146,6 +153,11 @@ def parse_request(text: str) -> Dict[str, Any]:
         challenge = "stale_write"
     if challenge:
         return {"intent": "challenge", "scenario": challenge}
+
+    # Consumer booking flow: the advertised airport-pickup request must map
+    # to the working booking scenario -- never a generic help response.
+    if re.search(r"\b(airport|pickup|taxi)\b", t) or "book a ride" in t:
+        return {"intent": "book_ride"}
 
     inject = "inject" in t or "break the" in t or "fail the" in t
     failure = None
@@ -258,6 +270,8 @@ class SimSession:
             return [self._ablation_message(parsed.get("failure") or "gray")]
         if intent == "challenge":
             return [self._challenge_message(parsed["scenario"])]
+        if intent == "book_ride":
+            return self._book_ride()
         if intent == "start_task":
             return self._start_task(parsed["task"],
                                     arm_failure=parsed.get("arm_failure"))
@@ -550,3 +564,44 @@ class SimSession:
         the runs' own records."""
         from .ablation import run_challenge
         return {"kind": "challenge", **run_challenge(scenario)}
+
+    def _book_ride(self) -> List[Dict[str, Any]]:
+        """The consumer booking story, narrated start to finish: the user
+        asks for an airport pickup; the provider commits; the ack is lost;
+        the assistant checks the journal before retrying; the remaining
+        steps complete; the receipt proves one booking. All records are
+        real -- the run executes the actual protected scenario."""
+        from .lost_ack import run_protected_lost_ack
+        from .receipt import receipt_from_lost_ack
+        result = run_protected_lost_ack(incident_id="RIDE-2049")
+        receipt = receipt_from_lost_ack(result)
+        ride = result["steps"][0]
+        effect_id = (ride["receipt"] or {}).get("effect_id", "not recorded")
+        return [
+            {"kind": "text",
+             "text": ("On it — booking your airport pickup for 6:30 tomorrow. "
+                      "I'll add it to your calendar and send your partner "
+                      "the details.")},
+            {"kind": "text",
+             "text": ("The ride provider confirmed the booking… but the "
+                      "confirmation never reached me. *(Simulated fault — "
+                      "deterministic and preconfigured: the provider commits, "
+                      "the acknowledgement is lost.)*")},
+            {"kind": "text",
+             "text": ("Before I retry, I'm checking the operation journal for "
+                      "this exact action — same service, same operation, same "
+                      "details. If it's already committed, I won't book "
+                      "again.")},
+            {"kind": "text",
+             "text": (f"Found it — booking **{effect_id}** is already "
+                      "committed. Reusing the receipt instead of creating a "
+                      "second booking.")},
+            {"kind": "text",
+             "text": ("Calendar updated, partner notified — both completed "
+                      "after the recovery. One booking total. Here's the "
+                      "proof:")},
+            {"kind": "booking_receipt",
+             "incident_id": result["incident_id"],
+             "receipt": receipt,
+             "title": "Booking recovery — one pickup, verified"},
+        ]
