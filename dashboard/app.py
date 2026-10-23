@@ -535,11 +535,19 @@ SIM_PAGE = """<!doctype html>
                      border: 1px solid var(--border); padding: 5px 10px; border-radius: 999px; }
   .advanced-panel[open] .advanced-toggle { background: var(--bg); }
   .advanced-content { padding: 0 20px 20px; border-top: 1px solid var(--border); }
+  .technical-proof { margin: 16px 0; padding: 18px 20px; border: 1px solid var(--border);
+                     border-left: 4px solid var(--accent); border-radius: 10px; background: var(--card); }
+  .technical-proof h4 { margin: 0 0 12px; font-size: 16px; color: var(--text); }
+  .technical-proof-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .technical-proof-item { padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
+  .technical-proof-item strong { display: block; margin-bottom: 6px; color: var(--text); font-size: 13px; }
+  .technical-proof-item p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
+  .technical-proof .tick { margin-top: 12px; line-height: 1.55; }
   @media (max-width: 720px) {
     h1 { font-size: 26px; }
     .lede { font-size: 16px; }
     .wrap { padding: 20px 16px 48px; }
-    .cgrid, .buckets { grid-template-columns: 1fr; }
+    .cgrid, .buckets, .technical-proof-grid { grid-template-columns: 1fr; }
     .msg.user { margin-left: 0; }
     .msg.bot, .contrast, .resumebox { margin-right: 0; }
     .receipt .kvrow { grid-template-columns: 1fr; gap: 2px; }
@@ -891,6 +899,47 @@ def _render_sim_message(msg: dict) -> str:
             tl = (f'<div class="timeline"><div class="kicker" '
                   f'style="margin-bottom:6px">Recovery timeline — from this run\u2019s records</div>'
                   f'{tl}</div>')
+        if scenario == "lost_ack":
+            technical_proof = (
+                '<section class="technical-proof" aria-label="Technical proof beyond idempotency">'
+                '<h4>What the continuity layer adds beyond retry deduplication</h4>'
+                '<div class="technical-proof-grid">'
+                '<div class="technical-proof-item"><strong>Persist before acknowledgement</strong>'
+                '<p>The gateway stores the operation intent and committed effect receipt in SQLite before the acknowledgement is returned.</p></div>'
+                '<div class="technical-proof-item"><strong>Reconcile before retry</strong>'
+                '<p>The retry reloads the receipt from the journal. Identity covers service, operation, target, and parameters; a mismatched reuse is rejected.</p></div>'
+                '<div class="technical-proof-item"><strong>Fail closed on unknown state</strong>'
+                '<p>If the provider cannot verify the receipt, the run halts for human review; dependent calendar and notification steps do not proceed.</p></div>'
+                '</div><div class="tick">Scope: the services and fault are simulated. Safe external reconciliation still requires provider idempotency or reliable state verification.</div></section>'
+            )
+        elif scenario == "unsafe":
+            technical_proof = (
+                '<section class="technical-proof" aria-label="Technical proof for invariant enforcement">'
+                '<h4>This is enforcement, not a warning</h4>'
+                '<div class="technical-proof-grid">'
+                '<div class="technical-proof-item"><strong>Business invariant</strong>'
+                '<p>The proposed restart:database action violates the scenario invariant and is blocked before the effect is applied.</p></div>'
+                '<div class="technical-proof-item"><strong>Controlled comparison</strong>'
+                '<p>The baseline workflow and protected workflow run the same scripted scenario; the layer is the changed variable.</p></div>'
+                '<div class="technical-proof-item"><strong>Recorded decision</strong>'
+                '<p>The challenge result and recovery receipt expose the blocked action and final disposition instead of relying on narration alone.</p></div>'
+                '</div><div class="tick">Scope: this is a deterministic, preconfigured fault—not a claim of generalized semantic detection.</div></section>'
+            )
+        elif scenario == "stale_write":
+            technical_proof = (
+                '<section class="technical-proof" aria-label="Technical proof for fencing">'
+                '<h4>Why a stale agent cannot keep writing</h4>'
+                '<div class="technical-proof-grid">'
+                '<div class="technical-proof-item"><strong>Generation authority</strong>'
+                '<p>Failover rotates the role generation. The prior primary continues to hold only its old generation.</p></div>'
+                '<div class="technical-proof-item"><strong>Boundary checks</strong>'
+                '<p>The gateway checks authority before dispatch; the provider and local store also enforce their fencing contracts.</p></div>'
+                '<div class="technical-proof-item"><strong>No effect on rejection</strong>'
+                '<p>A stale generation is rejected and the refusal is recorded; a rejection is not misreported as a successful write.</p></div>'
+                '</div><div class="tick">Fencing and idempotency solve different problems: fencing rejects stale writers; idempotency/reconciliation handles repeated operations.</div></section>'
+            )
+        else:
+            technical_proof = ""
         return (
             '<div class="reportbox"><h3>'
             f'{_sim_escape(msg.get("title", "Break-it challenge"))}</h3>'
@@ -898,7 +947,7 @@ def _render_sim_message(msg: dict) -> str:
             f'<div class="tick" style="margin-bottom:8px">incident {c["incident_id"]} · '
             f'failure {c["failure"]} (deterministic, preconfigured scripted fault) · '
             f'{sub}</div>'
-            + tl + header +
+            + technical_proof + tl + header +
             f'<pre class="score">{_sim_escape(chr(10).join(_render_scorecard_text(c["scorecard"])))}</pre>'
             + _render_receipt(msg["receipt"]) +
             '</div>')
