@@ -50,7 +50,7 @@ class Clock:
 class ContinuityLayer:
     def __init__(self, diagnostician: Diagnostician = None, config: dict = None,
                  canary_generator=None, live: bool | None = None):
-        # Credit-safety: live Nebius calls require explicit opt-in
+        # Credit-safety: live model calls require explicit opt-in
         # (live=True or CONTINUITY_LIVE=1). Key presence alone never suffices.
         self.live = live_enabled(live)
         self.config = config if config is not None else CONFIG

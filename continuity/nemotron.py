@@ -1,4 +1,4 @@
-"""Shared Nebius Token Factory client (OpenAI-compatible chat completions).
+"""Shared the model API client (OpenAI-compatible chat completions).
 
 One client, two jobs:
   - the diagnostician asks for explanatory notes / forensic narratives
@@ -6,15 +6,15 @@ One client, two jobs:
 
 The client NEVER decides anything: it returns model text, or raises, and
 callers degrade to deterministic fallbacks. Secrets come from the
-environment ONLY (NEBIUS_API_KEY).
+environment ONLY (MODEL_API_KEY).
 
-Verified request path (Nebius docs):
+Verified request path (model API docs):
   POST {base_url}/chat/completions
-  Authorization: Bearer <NEBIUS_API_KEY>
+  Authorization: Bearer <MODEL_API_KEY>
   {"model": ..., "messages": [{"role": ...}, ...], ...}
   -> payload["choices"][0]["message"]["content"]
 
-Defaults: base_url https://api.tokenfactory.nebius.com/v1
+Defaults: base_url https://api.modelprovider.example.com/v1
           model    nvidia/Nemotron-3.5-Super-VL
 (override via continuity.yaml or constructor args; key via env only.)
 """
@@ -32,7 +32,7 @@ from .log import ContinuityLogger
 
 
 def live_enabled(explicit: bool | None = None) -> bool:
-    """Explicit opt-in for live Nebius Token Factory calls.
+    """Explicit opt-in for live the model API calls.
 
     Key presence NEVER implies live mode: a $25 credit must not be spent
     by accident. Live calls happen only when the caller passes live=True
@@ -45,7 +45,7 @@ def live_enabled(explicit: bool | None = None) -> bool:
     return os.environ.get("CONTINUITY_LIVE", "").strip().lower() in (
         "1", "true", "yes", "on")
 
-DEFAULT_BASE_URL = "https://api.tokenfactory.nebius.com/v1"
+DEFAULT_BASE_URL = "https://api.modelprovider.example.com/v1"
 DEFAULT_MODEL = "nvidia/Nemotron-3.5-Super-VL"
 
 
@@ -65,7 +65,7 @@ class NemotronClient:
                  config: dict = None, logger=None,
                  live: bool | None = None):
         cfg = config if config is not None else CONFIG
-        self.api_key = api_key or os.environ.get("NEBIUS_API_KEY", "")
+        self.api_key = api_key or os.environ.get("MODEL_API_KEY", "")
         self.base_url = (base_url or _cfg_get(cfg, "nemotron", "base_url",
                                               default=DEFAULT_BASE_URL)).rstrip("/")
         self.model = model or _cfg_get(cfg, "nemotron", "model",
@@ -112,7 +112,7 @@ class NemotronClient:
         """
         if self._uses_real_transport and not self._live:
             raise RuntimeError(
-                "refusing live Nebius call: explicit opt-in required "
+                "refusing live model call: explicit opt-in required "
                 "(NemotronClient(live=True) or CONTINUITY_LIVE=1); "
                 "key presence alone never authorizes network use")
         with self._lock:

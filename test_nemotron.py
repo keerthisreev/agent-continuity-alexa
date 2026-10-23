@@ -36,13 +36,13 @@ def _scenarios():
 
 
 def _no_key_env():
-    old = os.environ.pop("NEBIUS_API_KEY", None)
+    old = os.environ.pop("MODEL_API_KEY", None)
     return old
 
 
 def _restore_key(old):
     if old is not None:
-        os.environ["NEBIUS_API_KEY"] = old
+        os.environ["MODEL_API_KEY"] = old
 
 
 def _no_live_env():
@@ -76,14 +76,14 @@ def test_generator_stays_offline_with_key_unless_live():
     old = _no_key_env()
     live_old = _no_live_env()
     try:
-        os.environ["NEBIUS_API_KEY"] = "<redacted>"
+        os.environ["MODEL_API_KEY"] = "<redacted>"
         gen = default_canary_generator()
         assert isinstance(gen, StaticCanaryGenerator), type(gen)
         assert gen.source == "static"
     finally:
         _restore_key(old)
         _restore_live(live_old)
-        os.environ.pop("NEBIUS_API_KEY", None)
+        os.environ.pop("MODEL_API_KEY", None)
     print("PASS generator: key set but no live opt-in -> stays static (offline)")
 
 
@@ -91,7 +91,7 @@ def test_generator_uses_nemotron_with_live_opt_in():
     old = _no_key_env()
     live_old = _no_live_env()
     try:
-        os.environ["NEBIUS_API_KEY"] = "<redacted>"
+        os.environ["MODEL_API_KEY"] = "<redacted>"
         gen = default_canary_generator(live=True)
         assert isinstance(gen, NemotronCanaryGenerator), type(gen)
         assert gen.source == "nemotron" and gen.available
@@ -101,7 +101,7 @@ def test_generator_uses_nemotron_with_live_opt_in():
     finally:
         _restore_key(old)
         _restore_live(live_old)
-        os.environ.pop("NEBIUS_API_KEY", None)
+        os.environ.pop("MODEL_API_KEY", None)
     print("PASS generator: live=True or CONTINUITY_LIVE=1 + key -> Nemotron selected")
 
 
@@ -188,7 +188,7 @@ def test_narrative_labels_and_never_verdict():
 
 
 def test_client_platform_facts():
-    assert DEFAULT_BASE_URL == "https://api.tokenfactory.nebius.com/v1", DEFAULT_BASE_URL
+    assert DEFAULT_BASE_URL == "https://api.modelprovider.example.com/v1", DEFAULT_BASE_URL
     assert DEFAULT_MODEL == "nvidia/Nemotron-3.5-Super-VL", DEFAULT_MODEL
     c = NemotronClient(api_key="<redacted>")
     assert c.base_url == DEFAULT_BASE_URL and c.model == DEFAULT_MODEL
@@ -215,7 +215,7 @@ def test_client_request_path():
         assert c.chat([{"role": "user", "content": "hi"}]) == "hello"
     finally:
         nemotron_mod.requests.post = real_post
-    assert seen["url"] == "https://api.tokenfactory.nebius.com/v1/chat/completions", seen["url"]
+    assert seen["url"] == "https://api.modelprovider.example.com/v1/chat/completions", seen["url"]
     assert seen["headers"]["Authorization"] == "Bearer <redacted>"
     assert seen["json"]["model"] == "nvidia/Nemotron-3.5-Super-VL"
     assert seen["json"]["messages"] == [{"role": "user", "content": "hi"}]
@@ -229,14 +229,14 @@ def test_default_diagnostician_still_key_gated():
     live_old = _no_live_env()
     try:
         assert isinstance(default_diagnostician(), StubDiagnostician)
-        os.environ["NEBIUS_API_KEY"] = "<redacted>"
+        os.environ["MODEL_API_KEY"] = "<redacted>"
         assert isinstance(default_diagnostician(), StubDiagnostician)
         assert isinstance(default_diagnostician(live=True),
                           NemotronDiagnostician)
     finally:
         _restore_key(old)
         _restore_live(live_old)
-        os.environ.pop("NEBIUS_API_KEY", None)
+        os.environ.pop("MODEL_API_KEY", None)
     print("PASS diagnostician: stub by default; Nemotron only with live opt-in + key")
 
 
@@ -255,7 +255,7 @@ def test_full_world_makes_zero_http_calls_with_key_set():
         raise AssertionError("HTTP call attempted in offline mode")
 
     try:
-        os.environ["NEBIUS_API_KEY"] = "<redacted>"
+        os.environ["MODEL_API_KEY"] = "<redacted>"
         with mock.patch.object(nemotron_mod.requests, "post", _boom):
             layer, store, primaries = make_world()
             assert layer.canary_generator.source == "static"
@@ -267,7 +267,7 @@ def test_full_world_makes_zero_http_calls_with_key_set():
     finally:
         _restore_key(old)
         _restore_live(live_old)
-        os.environ.pop("NEBIUS_API_KEY", None)
+        os.environ.pop("MODEL_API_KEY", None)
     print("PASS credit-safety: full world, key set, requests.post tripwire -> zero HTTP calls")
 
 
@@ -277,7 +277,7 @@ def test_direct_client_construction_still_gated():
     old = _no_key_env()
     live_old = _no_live_env()
     try:
-        os.environ["NEBIUS_API_KEY"] = "<redacted>"
+        os.environ["MODEL_API_KEY"] = "<redacted>"
         direct = NemotronClient()
         assert direct.available
         try:
@@ -293,7 +293,7 @@ def test_direct_client_construction_still_gated():
     finally:
         _restore_key(old)
         _restore_live(live_old)
-        os.environ.pop("NEBIUS_API_KEY", None)
+        os.environ.pop("MODEL_API_KEY", None)
     print("PASS credit-safety: direct client construction gated at transport boundary")
 
 

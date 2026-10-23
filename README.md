@@ -49,7 +49,7 @@ forensic ledger.
   |  standby.py    hot-standby lifecycle             |
   |  ledger.py     forensic record + affected-work   |
   |  metrics.py    TSFD / TRV / AFR                  |
-  |  diagnostician.py  OPTIONAL Nemotron notes +     |
+  |  diagnostician.py  OPTIONAL model notes +        |
   |                    narratives (advisory only)    |
   +=================================================+
       v
@@ -60,7 +60,7 @@ forensic ledger.
 **Design rules (frozen):**
 - Agents are never modified — the layer observes inputs/outputs/effects
   through the adapter boundary only (`agents/` never imports `continuity/`).
-- The deterministic sentinel is always authoritative. Nemotron writes
+- The deterministic sentinel is always authoritative. The model writes
   canary scenarios and forensic narratives; the deterministic oracle judges
   every probe and verdicts are identical with the model disabled.
 - Canaries are suspicion-triggered, never continuous.
@@ -74,7 +74,7 @@ forensic ledger.
 pip install -r requirements.txt
 python3 test_continuity.py   # 13/13: the brutal proof
 python3 test_robust.py       #  9/9: hardening (config, threads, export, dashboard, client)
-python3 test_nemotron.py     # 12/12: Nemotron seam, offline-safe
+python3 test_nemotron.py     # 12/12: model seam, offline-safe
 python3 test_mcp.py          # 11/11: MCP read-only ledger
 python3 test_showcase.py     #  7/7: dashboard scenario gallery
 python3 test_sim.py          # 18/18: Alexa+ sim (initiate -> interrupt -> resume + booking flow)
@@ -129,7 +129,7 @@ and all times are ticks, never seconds.
 
 **Docker:**
 ```bash
-cp .env.example .env   # add NEBIUS_API_KEY + CONTINUITY_LIVE=1 for the live Nemotron beat (optional)
+cp .env.example .env   # add MODEL_API_KEY + CONTINUITY_LIVE=1 for the live model beat (optional)
 docker compose up      # dashboard on :5000 + the terminal demo
 ```
 
@@ -144,7 +144,7 @@ from store import IncidentStore
 
 layer = ContinuityLayer()                      # deterministic; add
                                                # diagnostician=default_diagnostician()
-                                               # for Nemotron notes
+                                               # for model notes
 store = IncidentStore(layer.fencing, layer.ledger)
 
 layer.register("remediation",
@@ -171,9 +171,9 @@ See `examples/wrap_existing.py` for wrapping a LangChain-style agent
 (own tools/state/`run()`) without touching its code.
 
 Configuration: copy `continuity.example.yaml` to `continuity.yaml` to
-override thresholds, canary behavior, epoch TTL, Nemotron settings, and
+override thresholds, canary behavior, epoch TTL, model settings, and
 the JSONL log path. Secrets come from the environment only
-(`NEBIUS_API_KEY`).
+(`MODEL_API_KEY`).
 
 ## The three failure modes
 
@@ -203,22 +203,21 @@ Computed from the forensic ledger (`continuity/metrics.py`,
 - **AFR — Affected Work Recovery Rate:** recovered incidents (completed
   clean / replayed or recovered via standby) over all affected incidents.
 
-## Nebius Token Factory + Nemotron
+## Live model seam (optional, not used in this submission)
 
-Nemotron does two jobs a deterministic layer cannot do for itself — both via
-the Nebius Token Factory OpenAI-compatible chat-completions endpoint
-(`https://api.tokenfactory.nebius.com/v1/chat/completions`, default model
-`nvidia/Nemotron-3.5-Super-VL`, overridable in `continuity.yaml`):
+The model does two jobs a deterministic layer cannot do for itself — both via
+an OpenAI-compatible chat-completions endpoint (configurable in
+`continuity.yaml`, key via `MODEL_API_KEY`):
 
 1. **Canary generation** (`continuity/canary.py`): with explicit live
-   opt-in (`demo.py --live` or `CONTINUITY_LIVE=1`) **and** `NEBIUS_API_KEY`
-   set, `NemotronCanaryGenerator` invents diverse, adversarial probe
+   opt-in (`demo.py --live` or `CONTINUITY_LIVE=1`) **and** `MODEL_API_KEY`
+   set, the model invents diverse, adversarial probe
    scenarios per role. The deterministic `CanaryOracle` still judges every
    probe — the model writes scenarios, the oracle judges. Otherwise → the
    frozen static probe.
 2. **Forensic narrative** (`continuity/diagnostician.py`): after a failover,
-   Nemotron drafts the 2–3 sentence incident summary from the failure window
-   + affected-work map. Labeled `nemotron-narrative`, advisory only, never
+   the model drafts the 2–3 sentence incident summary from the failure window
+   + affected-work map. Labeled `model-narrative`, advisory only, never
    consulted for a verdict.
 
 **Credit safety:** key presence alone never enables network calls — not in
@@ -232,9 +231,9 @@ The client **never** raises into the sentinel path and **never** changes a
 verdict — the governing principle is that the verifier must be dumber than
 the verified.
 
-**What the video must show:** run `demo.py --live` with `NEBIUS_API_KEY` set — the
-timeline prints `[nemotron] generated 3 canary probes for role=remediation`
-and the evidence screen renders the Nemotron-written forensic narrative. Without
+**Live model (not used in this submission):** run `demo.py --live` with `MODEL_API_KEY`
+set — the timeline prints `[model] generated 3 canary probes for role=remediation`
+and the evidence screen renders the model-written forensic narrative. Without
 `--live`, everything runs fully deterministic on the stub (the demo prints
 the `[static]` fallback lines instead); no test touches the network.
 
