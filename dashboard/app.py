@@ -514,6 +514,27 @@ SIM_PAGE = """<!doctype html>
   .tl-dot { flex: 0 0 12px; width: 12px; height: 12px; border-radius: 50%; margin-top: 5px; }
   .foot { margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
           color: var(--faint); font-size: 13px; }
+  .flow-steps { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
+  .flow-step { display: inline-flex; align-items: center; gap: 8px; background: var(--bg);
+               border: 1px solid var(--border); border-radius: 999px; padding: 7px 12px;
+               color: var(--text); font-size: 14px; font-weight: 600; }
+  .flow-number { display: inline-grid; place-items: center; width: 22px; height: 22px;
+                 border-radius: 50%; background: #ddf4ff; color: var(--accent); font-size: 12px; }
+  .flow-arrow { color: var(--faint); font-weight: 600; }
+  .task-promise { color: var(--muted); margin: 0 0 18px; }
+  .advanced-panel { margin: 28px 0 0; border: 1px solid var(--border); border-radius: 12px;
+                    background: var(--card); box-shadow: 0 1px 3px rgba(31,35,40,.04); }
+  .advanced-panel > summary { list-style: none; display: flex; justify-content: space-between;
+                              align-items: center; gap: 14px; cursor: pointer; padding: 18px 20px; }
+  .advanced-panel > summary::-webkit-details-marker { display: none; }
+  .advanced-panel > summary::marker { content: ""; }
+  .advanced-panel > summary:hover .advanced-title { color: var(--accent); }
+  .advanced-title { display: block; color: var(--text); font-weight: 700; font-size: 16px; }
+  .advanced-subtitle { display: block; color: var(--muted); font-size: 13px; margin-top: 3px; }
+  .advanced-toggle { flex: 0 0 auto; color: var(--accent); font-size: 13px; font-weight: 600;
+                     border: 1px solid var(--border); padding: 5px 10px; border-radius: 999px; }
+  .advanced-panel[open] .advanced-toggle { background: var(--bg); }
+  .advanced-content { padding: 0 20px 20px; border-top: 1px solid var(--border); }
   @media (max-width: 720px) {
     h1 { font-size: 26px; }
     .lede { font-size: 16px; }
@@ -535,20 +556,24 @@ operation, resumes the workflow, or stops for human review — never guesses.</p
 <div class="taskcard">
 <div class="kicker">The task — a fixed sample scenario</div>
 <div class="req">&ldquo;Arrange an airport pickup for 6:30 tomorrow, add it to my calendar, and send my partner the details.&rdquo;</div>
-<table class="meta">
-<tr><td class="k">What runs</td><td>Ride booking (airport pickup, 6:30 tomorrow) &rarr; calendar update &rarr; partner notification</td></tr>
-<tr><td class="k">The fault</td><td>The ride provider commits, then the acknowledgement is lost — the agent can't tell whether the booking happened</td></tr>
-<tr><td class="k">The question</td><td>Does the retry book twice? Compare naive retry, idempotency-only, and the full continuity layer.</td></tr>
-</table>
+<div class="flow-steps" aria-label="Workflow steps">
+  <span class="flow-step"><span class="flow-number">1</span> Book the ride</span>
+  <span class="flow-arrow" aria-hidden="true">→</span>
+  <span class="flow-step"><span class="flow-number">2</span> Update calendar</span>
+  <span class="flow-arrow" aria-hidden="true">→</span>
+  <span class="flow-step"><span class="flow-number">3</span> Notify your partner</span>
+</div>
+<p class="task-promise">The ride is booked, but its confirmation gets lost. See how three recovery approaches handle the uncertainty.</p>
 <div class="cta-row">
 <button class="cta" id="runBtn" onclick="runChallenge('lost_ack','scenario-out')">&#9654; Run the booking scenario</button>
 <button class="ghost" onclick="resetDemo()">Reset demo</button>
 </div>
-<div class="disclosure"><strong>Simulated demo.</strong> No real ride is booked and no real Alexa+ backend is called.
-The request is keyword-matched to this fixed scenario (not parsed as free text). The booking provider,
-calendar, and notification services are simulated; the journal, gateway, fencing, and ledger underneath are the real engine.</div>
+<div class="disclosure" id="simulationDisclosure" role="note"><strong>Simulation.</strong> No real ride is booked, no calendar event or notification is sent, and no live Alexa+ backend is called. This button runs the fixed example above; the optional assistant panel below exposes other scripted interactions.</div>
 </div>
-<div id="scenario-out"></div>
+<div id="scenario-out" aria-live="polite"></div>
+<details class="advanced-panel">
+<summary><span><span class="advanced-title">Explore technical evidence</span><span class="advanced-subtitle">Other failure modes, diagnostic chat, and recovery details</span></span><span class="advanced-toggle">Optional</span></summary>
+<div class="advanced-content">
 <div class="section-head">Explore other failure modes</div>
 <div class="guide">
 <ol>
@@ -584,6 +609,8 @@ calendar, and notification services are simulated; the journal, gateway, fencing
 (deterministic keyword matching — no network, no model, no API keys). The continuity
 mechanisms execute in the real code; the booking provider, calendar, notification
 services, and injected faults are simulated.</div>
+</div>
+</details>
 <div class="foot"><span class="sub"><a href="/">live dashboard</a> &middot;
 <a href="/showcase">scenario showcase</a></span></div>
 </div>
