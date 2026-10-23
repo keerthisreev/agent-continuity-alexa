@@ -445,26 +445,31 @@ SIM_PAGE = """<!doctype html>
   .chip { background:#161b22; border:1px solid #58a6ff; color:#58a6ff; border-radius:16px;
           padding:6px 12px; font-size:13px; cursor:pointer; }
   .tick { color:#8b949e; }
+  .kicker { color:#8b949e; font-size:12px; text-transform:uppercase;
+           letter-spacing:2px; margin-bottom:8px; }
+  h1 { font-size:26px; margin:0 0 10px; max-width:900px; line-height:1.3; }
+  .hero { font-size:16px; line-height:1.7; max-width:900px; margin-bottom:14px;
+          border-left:3px solid #f0b429; padding-left:14px; }
+  .cta-row { margin:0 0 14px; max-width:900px; }
+  button.cta { background:#f0b429; color:#0d1117; font-weight:bold;
+              font-size:16px; padding:12px 22px; }
 </style></head>
 <body>
-<h1>SIMULATED ALEXA+ EXPERIENCE</h1>
-<div class="sub">A simulated conversational front-end for the <b>Agent Continuity Layer</b> —
-a reliability layer for agent workflows. &middot; <a href="/">live dashboard</a> &middot;
+<div class="kicker">Simulated Alexa+ experience · Agent Continuity Layer</div>
+<h1>The booking succeeded. The agent didn't know it.</h1>
+<div class="hero">An AI assistant performs an action, loses the acknowledgement, and tries
+again — the user gets <b>booked twice</b>. This is the moment recovery itself becomes
+dangerous. The layer below prevents the duplicate: the operation journal reconciles what
+actually happened, reuses the committed receipt, completes the remaining steps — and
+produces a receipt proving it.</div>
+<div class="cta-row"><button class="cta" onclick="runChallenge('lost_ack')">▶ Break it:
+lose the acknowledgement</button></div>
+<div class="sub"><a href="/">live dashboard</a> &middot;
 <a href="/showcase">scenario showcase</a></div>
 <div class="honest">Honest simulation: the chat and intent mapping are simulated
 (deterministic keyword matching — no network, no model, no API keys). Everything underneath —
 the four-agent workflow, gray-failure detection, fencing, standby failover, checkpoints —
 is the real continuity engine, driven with zero mocks.</div>
-<div class="guide"><h2>Guided demo — the one beat to watch</h2>
-<ol>
-<li>"Investigate incident INC-1043 and prepare a remediation plan. Don't execute an unsafe action."</li>
-<li>"Inject a gray failure." — a <b>deterministic, preconfigured</b> fault: the scripted backend returns a plausible-but-wrong plan violating the invariant <i>never restart the database for this incident class</i>.</li>
-<li>"Continue." — watch the outside-view vs sentinel contrast, then the resume proof.</li>
-<li>"Test the fence." — the fenced primary retries with its revoked generation; the store rejects it.</li>
-<li>"What happened to my tasks?" — the three-bucket report + reliability scorecard (times in <b>ticks</b>, not seconds).</li>
-<li>"Run the ablation." — workflow alone vs workflow + layer, from real runs.</li>
-</ol>
-<div class="tick">Three fault scenarios: gray semantic violation · silent dependency failure · stale write from a fenced agent. Each states its enforced invariant up front — never generalized AI-failure detection.</div></div>
 <div class="guide"><h2>Break-it challenge — three faults, baseline vs layer, with receipt</h2>
 <ol>
 <li><b>A · Lose the acknowledgement</b> — the ride provider commits the booking, but the ack never arrives. Does the retry book twice?</li>
@@ -477,6 +482,16 @@ is the real continuity engine, driven with zero mocks.</div>
   <span class="chip" data-challenge="stale_write">C · stale write after failover</span>
 </div>
 <div class="tick">Deterministic, preconfigured faults — never generalized AI-failure detection. Times in ticks, not seconds. Each challenge ends with a recovery receipt built from the journal + ledger.</div></div>
+<div class="guide"><h2>Second beat: the gray failure (the original demo)</h2>
+<ol>
+<li>"Investigate incident INC-1043 and prepare a remediation plan. Don't execute an unsafe action."</li>
+<li>"Inject a gray failure." — a <b>deterministic, preconfigured</b> fault: the scripted backend returns a plausible-but-wrong plan violating the invariant <i>never restart the database for this incident class</i>.</li>
+<li>"Continue." — watch the outside-view vs sentinel contrast, then the resume proof.</li>
+<li>"Test the fence." — the fenced primary retries with its revoked generation; the store rejects it.</li>
+<li>"What happened to my tasks?" — the three-bucket report + reliability scorecard (times in <b>ticks</b>, not seconds).</li>
+<li>"Run the ablation." — workflow alone vs workflow + layer, from real runs.</li>
+</ol>
+<div class="tick">Three fault scenarios: gray semantic violation · silent dependency failure · stale write from a fenced agent. Each states its enforced invariant up front — never generalized AI-failure detection.</div></div>
 <div id="chat"></div>
 <div class="chips">
   <span class="chip" data-q="Investigate incident INC-1043 and prepare a remediation plan. Don't execute an unsafe action.">investigate INC-1043</span>
@@ -536,7 +551,7 @@ function runChallenge(scenario){
     body: JSON.stringify({scenario: scenario})
   }).then(r=>r.json()).then(d=>{ addRaw(d.html); });
 }
-addBot(md("Hi — I'm a **simulated** conversational front-end for the Agent Continuity Layer, a **reliability layer for agent workflows**. Give me an incident to investigate, e.g. **\\"Investigate incident INC-1043 and prepare a remediation plan.\\"**"));
+addBot(md("Hi — I'm a **simulated** front-end for the Agent Continuity Layer. **Try the big button above**: I'll book a ride, lose the acknowledgement, and show you why the retry doesn't book twice. Or give me an incident, e.g. **\\"Investigate incident INC-1043 and prepare a remediation plan.\\"**"));
 </script></body></html>
 """
 

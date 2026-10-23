@@ -33,7 +33,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from test_continuity import make_world
 from continuity.diagnostician import StubDiagnostician
-from continuity.journal import OperationJournal
+from continuity.journal import (
+    DECISION_UNVERIFIED_NEEDS_REVIEW, OperationJournal)
 
 # The multi-step user task. Deterministic fixtures, not a live integration.
 # "service" names the downstream provider for the journal's canonical
@@ -87,6 +88,13 @@ class SimulatedProvider:
         if idempotency_key is not None:
             self.effects[idempotency_key] = receipt
         return dict(receipt), True
+
+    def query(self, idempotency_key: Optional[str]) -> Optional[dict]:
+        """Re-read provider state for a key: the recorded receipt, or None
+        if the provider has no record of it (state lost, or never
+        committed here). A read, not an effect: does not touch `calls`."""
+        receipt = self.effects.get(idempotency_key)
+        return dict(receipt) if receipt is not None else None
 
 
 def _fresh_journal(path: Optional[str] = None) -> OperationJournal:
@@ -172,12 +180,32 @@ class ContinuityGateway:
             # the persisted receipt -- reconcile() re-reads it from
             # SQLite; the provider is not called again.
             final = self.journal.reconcile(op_id)
+            receipt = dict(final["receipt"])
+            # Re-verify against the provider: if the provider has no
+            # record of this key, the persisted receipt cannot be
+            # confirmed. Surface needs-review -- never manufacture a
+            # successful recovery, and never blindly re-book (a fresh
+            # provider would NOT dedupe the key).
+            if self.provider.query(key) is None:
+                decision = DECISION_UNVERIFIED_NEEDS_REVIEW
+                self.journal.mark_needs_review(op_id, decision)
+                if ledger is not None:
+                    ledger.record("journal_unverified",
+                                  {"op": op_id, "decision": decision,
+                                   "honest_note": "journal says committed; "
+                                                  "provider has no record"},
+                                  tick)
+                return {"receipt": receipt, "reused": True,
+                        "provider_call": False, "created": False,
+                        "verified": False, "needs_review": True,
+                        "recovery_decision": decision}
             if ledger is not None:
                 ledger.record("journal_reconciled",
                               {"op": op_id,
                                "decision": final["recovery_decision"]}, tick)
-            return {"receipt": dict(final["receipt"]), "reused": True,
+            return {"receipt": receipt, "reused": True,
                     "provider_call": False, "created": False,
+                    "verified": True, "needs_review": False,
                     "recovery_decision": final["recovery_decision"]}
         # First sight of this key: call the provider exactly once...
         receipt, created = self.provider.execute(op["op"], key, op["params"])
@@ -242,6 +270,7 @@ def run_protected_lost_ack(incident_id: str = "INC-1043",
         # information boundary the whole scenario is about.
         agent_receipt = None
         reused, created, recovery_decision = False, False, None
+        verified, needs_review = True, False
         if i == 0:
             # THE FAULT, through the gateway: the provider commits, the
             # gateway persists the receipt, the ack never reaches the agent.
@@ -274,6 +303,7 @@ def run_protected_lost_ack(incident_id: str = "INC-1043",
             assert result["provider_call"] is False, result
             agent_receipt = result["receipt"]
             reused, recovery_decision = True, result["recovery_decision"]
+            verified, needs_review = result["verified"], result["needs_review"]
             # By fault definition the provider created the effect on the
             # first (ack-lost) attempt.
             created = True
@@ -294,6 +324,7 @@ def run_protected_lost_ack(incident_id: str = "INC-1043",
             "step": step, "op_id": op_id, "key": key,
             "receipt": agent_receipt, "created": created, "reused": reused,
             "recovery_decision": recovery_decision,
+            "verified": verified, "needs_review": needs_review,
             "provider_calls_after": provider.calls,
         })
 
