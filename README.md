@@ -100,7 +100,7 @@ python3 test_sim.py          # 18/18: the sim's own proof
 ```
 No API keys, no network — everything above runs fully offline and deterministic.
 
-**Commit-aware recovery (the "doesn't do it twice" demo):** the `/sim` page has a
+**Commit-aware recovery (the continuity demo):** the `/sim` page has a
 break-it challenge panel with three buttons — *lose the acknowledgement*,
 *propose an unsafe action*, *stale write after failover*. Each runs baseline vs
 layer side-by-side and ends with a **recovery receipt** (per-operation effect

@@ -11,7 +11,7 @@ genuinely hers before submitting.
 Agent Continuity Layer
 
 ## Tagline
-The AI that doesn't do it twice — commit-aware recovery for Alexa+ workflows.
+Continuity control for AI workflows — recover ambiguous failures without replaying work or trusting unverified results.
 
 ## Track
 Alexa+ — simulated Alexa+ experience in a web app (per the official rules, the
@@ -19,17 +19,28 @@ simulated path needs no MCP surface; the simulation source is in this repo).
 
 ## Description (paste into Devpost)
 
-**The agent is green. Its decisions aren't — and now, its actions can't repeat.**
+**The agent is green. Its decisions aren't — and when an action's outcome turns
+ambiguous, the recovery shouldn't be a guess.**
 
 The failure no monitor catches: an AI assistant performs an action, loses the
 acknowledgement, and tries again. The user gets charged twice, booked twice, the
-same task executed twice. The Agent Continuity Layer is the reliability layer
-that ends that uncertainty: a **continuity gateway** sits between the agent and
+same task executed twice. The Agent Continuity Layer is the continuity control
+layer that recovers the workflow without replaying completed work — and never
+trusts a result it can't verify: a **continuity gateway** sits between the agent and
 the downstream provider, persists every effect receipt to a **SQLite operation
 journal before the acknowledgement goes out**, and serves retries from the
 journal instead of re-executing. Same idempotency key, same full operation
 (service, op, target, params) → the committed receipt is reused. Same key, a
 different operation → rejected loudly, never silently conflated.
+
+**Why not just idempotency keys?** A per-operation key stops a repeated request
+from creating a second effect — established practice, and this layer relies on
+it. But a key alone doesn't establish the outcome of a *multi-step workflow*
+after a restart, doesn't resolve an *unknown* provider state, and doesn't stop
+a *stale agent* from acting after failover. That's the gap this closes: the
+durable journal plus reconcile-before-retry, fencing generations enforced at
+the gateway *and* the provider, and a recovery receipt that proves what happened
+— or says "needs human review" when the outcome can't be verified.
 
 **This submission: a conversational, Alexa+-style simulated experience.**
 "Arrange an airport pickup for 6:30 tomorrow, add it to my calendar, and send

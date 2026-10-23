@@ -58,11 +58,14 @@ The signature moment (say it verbatim at the hook):
 - Narration: "Not a success message — evidence. What was booked, what the
   retry decided, what was actually verified. And when the outcome can't be
   confirmed, it says so instead of pretending."
+- Beat (10s, to the camera or voiceover): "An idempotency key stops a repeated
+  request. It doesn't recover a multi-step workflow after a restart, resolve
+  an unknown outcome, or fence a stale agent. That's the layer underneath."
 
 ## 2:25–2:40 — Close (15s)
 
-- Narration: "The Agent Continuity Layer — the AI that doesn't do it twice.
-  Trust the work, not the process."
+- Narration: "The Agent Continuity Layer — recover the workflow without
+  replaying the work, and never trust a result you can't verify."
 - End card: repo link, her name.
 
 ## Filming checklist
