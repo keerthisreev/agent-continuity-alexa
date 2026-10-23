@@ -323,7 +323,7 @@ docs/devpost-alexa-draft.md   Devpost description draft
 
 - [Devpost description draft](docs/devpost-alexa-draft.md)
 - [Measured results table](docs/results-table.md)
-- [Test evidence (91/91)](docs/test-evidence.md)
+- [Test evidence (94/94 reported on prior validated commit; current branch requires rerun)](docs/test-evidence.md)
 - [Friction log](docs/friction-log-draft.md)
 
 ## License
