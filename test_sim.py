@@ -385,6 +385,9 @@ def test_sim_page_has_reset_and_light_theme():
     assert "--bg: #f6f8fa" in html, "light theme tokens must be present"
     assert "Run the booking scenario" in html, html
     assert "simulated" in html.lower(), "simulated disclosure must be present"
+    assert 'class="advanced-panel"' in html, "technical details must be progressively disclosed"
+    assert 'aria-label="Workflow steps"' in html, "customer workflow steps must be visible"
+    assert 'aria-live="polite"' in html, "scenario results must be announced accessibly"
     print("PASS ui: /sim page has reset, light theme, CTA, and simulated disclosure")
 
 
