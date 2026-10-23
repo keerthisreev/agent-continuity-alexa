@@ -312,13 +312,16 @@ test_nemotron.py         9 tests -- Nemotron rework (platform fix, canary gen, n
 test_mcp.py             11 tests -- MCP read-only interface
 test_showcase.py         6 tests -- dashboard scenario showcase
 docs/video-script.md    3-minute video choreography
-docs/devpost-draft.md   Devpost description draft
+docs/devpost-alexa-draft.md   Devpost description draft
 ```
 
 ## Submission docs
 
 - [3-minute video choreography](docs/video-script.md)
-- [Devpost description draft](docs/devpost-draft.md)
+- [Devpost description draft](docs/devpost-alexa-draft.md)
+- [Measured results table](docs/results-table.md)
+- [Test evidence (91/91)](docs/test-evidence.md)
+- [Friction log](docs/friction-log-draft.md)
 
 ## License
 
