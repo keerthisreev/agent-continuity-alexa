@@ -238,6 +238,35 @@ def test_full_restart_with_provider_state_lost_needs_review():
     print("PASS restart: provider state lost -> needs-review, no blind re-book")
 
 
+def test_provider_rejects_stale_fencing_token():
+    """Downstream contract: the provider validates the fencing token on
+    every call. A rotation landing between the gateway's pre-check and
+    the provider's execution is still rejected -- no effect recorded."""
+    layer, _, _ = make_world(diagnostician=StubDiagnostician(), live=False)
+    provider = SimulatedProvider(fencing=layer.fencing, role="remediation")
+    token = layer.fencing.current("remediation")
+    _, created = provider.execute("ride", "tok-key", {"x": 1},
+                                  fencing_token=token)
+    assert created is True
+    # A rotation lands (e.g. failover) after the gateway's pre-check.
+    layer.fencing.rotate("remediation", layer.clock.tick())
+    try:
+        provider.execute("ride", "tok-key-2", {"x": 2}, fencing_token=token)
+        raise AssertionError("expected StaleEpochError for stale token")
+    except StaleEpochError:
+        pass
+    assert provider.calls == 1, provider.calls
+    assert len(provider.created_receipts) == 1
+    # Fail-closed on a missing token too.
+    try:
+        provider.execute("ride", "tok-key-3", {"x": 3})
+        raise AssertionError("expected StaleEpochError for missing token")
+    except StaleEpochError:
+        pass
+    assert provider.calls == 1, provider.calls
+    print("PASS provider: stale/missing fencing token rejected, no effect")
+
+
 def test_intent_commit_lifecycle():
     j = _tmp_journal()
     try:
@@ -469,6 +498,7 @@ TESTS = [
     test_agent_never_saw_receipt,
     test_gateway_rejects_stale_generation_before_provider,
     test_full_restart_with_provider_state_lost_needs_review,
+    test_provider_rejects_stale_fencing_token,
     test_intent_commit_lifecycle,
     test_retry_same_key_same_payload_reuses_receipt,
     test_same_key_different_payload_is_conflict,

@@ -302,6 +302,32 @@ def test_no_banned_language_in_new_files():
     print("PASS copy: no $20K language; framed as a reliability layer")
 
 
+def test_booking_utterance_runs_the_booking_flow():
+    """The advertised airport-pickup request must map to the working
+    booking scenario -- never a generic help response. The chat narrates
+    the protected run start to finish and ends with a journal-built
+    receipt showing exactly one booking."""
+    session = SimSession()
+    msgs = session.handle(
+        "Arrange an airport pickup for 6:30 tomorrow, add it to my "
+        "calendar, and send my partner the details.")
+    assert len(msgs) == 6, [m["kind"] for m in msgs]
+    assert all(m["kind"] == "text" for m in msgs[:5])
+    assert msgs[-1]["kind"] == "booking_receipt"
+    # The narration names the honest fault and the journal check.
+    joined = " ".join(m.get("text", "") for m in msgs)
+    assert "Simulated fault" in joined, joined
+    assert "operation journal" in joined, joined
+    # The receipt is built from real records: one booking, reused.
+    receipt = msgs[-1]["receipt"]
+    ops = receipt["operations"]
+    assert len(ops) == 3, ops
+    ride = ops[0]
+    assert ride["retry_decision"] == "reused", ride
+    assert (ride["effect_receipt"] or {}).get("status") == "confirmed"
+    print("PASS booking: advertised utterance -> narrated recovery + receipt")
+
+
 TESTS = [test_nlu_conversational_prompt_shape,
          test_nlu_all_task_specs,
          test_nlu_control_intents,
@@ -318,7 +344,8 @@ TESTS = [test_nlu_conversational_prompt_shape,
          test_chat_ablation_message,
          test_ablation_silent_failure,
          test_incident_timeline_includes_failover_evidence,
-         test_no_banned_language_in_new_files]
+         test_no_banned_language_in_new_files,
+         test_booking_utterance_runs_the_booking_flow]
 
 
 def main() -> int:
