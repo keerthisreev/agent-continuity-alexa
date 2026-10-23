@@ -1,16 +1,9 @@
-# Devpost description (DRAFT)
-
-> NOTE (2026-10-22): this file is the **Nebius × NVIDIA hackathon** submission
-> draft (deadline Oct 30). The **Amazon Alexa+ track** submission text lives in
-> `docs/devpost-alexa-draft.md` — that is the source of truth for the Alexa+
-> entry. Do not mix the two tracks' claims.
-
 ## Agent Continuity Layer — reliability infrastructure for AI agent workflows
 
 **The track claim.** This is a workflow that runs itself — and keeps running
 correctly when its agents silently fail. Submitted under **Best Apps and
 Agents**: an operational reliability layer for multi-agent workflows,
-powered by Nemotron models on Nebius Token Factory. Every agent workflow —
+powered by Nemotron models. Every agent workflow —
 incident response, support automation, ops copilots — can die the quiet
 death: process alive, role dead, pipeline still producing output nobody can
 trust. This project is the layer that catches that failure, contains it,
@@ -68,11 +61,6 @@ Nebius Token Factory (Nemotron inference: canary-probe generation and
 forensic narratives), NVIDIA Nemotron open models
 (`nvidia/Nemotron-3.5-Super-VL` via the OpenAI-compatible
 `https://api.tokenfactory.nebius.com/v1` endpoint).
-
-## Feedback on Nebius Token Factory & NVIDIA tools — [DRAFT, fill gaps after key check]
-
-*(Devpost requires a feedback section. This is a draft built from the
-integration work; lines marked [FILL] need your key-check observations.)*
 
 **What worked well.**
 - The OpenAI-compatible chat-completions endpoint
