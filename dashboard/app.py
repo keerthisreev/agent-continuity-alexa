@@ -481,9 +481,9 @@ SIM_PAGE = """<!doctype html>
 <div class="sub"><a href="/">live dashboard</a> &middot;
 <a href="/showcase">scenario showcase</a></div>
 <div class="honest">Honest simulation: the chat and intent mapping are simulated
-(deterministic keyword matching — no network, no model, no API keys). Everything underneath —
-the four-agent workflow, gray-failure detection, fencing, standby failover, checkpoints —
-is the real continuity engine, driven with zero mocks.</div>
+(deterministic keyword matching — no network, no model, no API keys). The continuity
+mechanisms execute in the real code; the booking provider, calendar, notification
+services, and injected faults are simulated.</div>
 <div class="guide"><h2>Explore other failure modes</h2>
 <ol>
 <li><b>B · Propose an unsafe action</b> — the compromised agent proposes <i>restart:database</i>. The workflow alone executes it; the layer blocks it.</li>

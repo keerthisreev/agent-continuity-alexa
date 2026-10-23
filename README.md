@@ -1,8 +1,10 @@
 # Agent Continuity Layer
 
-> **The undercover agent is always watching.**
+> **The booking succeeded. The agent didn't know it.**
 >
-> *Kubernetes keeps services alive. We keep agent workflows alive.*
+> *When an AI assistant can't tell whether its action worked, the retry is the dangerous part. This layer reconciles, resumes, or stops for human review — never guesses.*
+
+**Start here:** run `python3 dashboard/app.py` and open http://127.0.0.1:5000/sim — the booking-recovery demo with the three-way comparison (naive retry vs idempotency-only vs the full layer).
 
 ## The problem (origin story)
 
@@ -306,11 +308,13 @@ continuity/             the continuity layer (the product)
 dashboard/app.py        live video-readable dashboard (Flask) + scenario showcase (/showcase)
 examples/wrap_existing.py  wrap a LangChain-style agent without modifying it
 store.py                the existing shared incident store (epoch-fenced writes)
-test_continuity.py      10 tests -- the brutal proof (frozen)
+test_continuity.py      13 tests -- the brutal proof (frozen)
 test_robust.py           9 tests -- hardening (config, threads, export, dashboard, client)
-test_nemotron.py         9 tests -- Nemotron rework (platform fix, canary gen, narrative)
+test_nemotron.py        12 tests -- model seam, offline-safe
 test_mcp.py             11 tests -- MCP read-only interface
-test_showcase.py         6 tests -- dashboard scenario showcase
+test_showcase.py         7 tests -- dashboard scenario showcase
+test_sim.py             18 tests -- Alexa+ sim (booking flow + three-way comparison)
+test_journal.py         21 tests -- operation journal + gateway + lost-ack scenario
 docs/video-script.md    3-minute video choreography
 docs/devpost-alexa-draft.md   Devpost description draft
 ```

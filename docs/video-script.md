@@ -23,41 +23,49 @@ The signature moment (say it verbatim at the hook):
 
 ## 0:20–0:45 — The setup (25s)
 
-- On screen: /sim chat. The task, in plain language: book an airport ride,
-  update the calendar, notify the partner. A normal multi-step assistant task.
-- Narration: "The task starts the way a user would start it — in conversation.
-  Three steps, one real side effect: the ride booking."
+- On screen: the /sim task card — the request, what runs, the fault, the
+  question ("Does the retry book twice?"), and the run button.
+- Narration: "The task starts the way a user would start it — in
+  conversation. Three modeled steps: the ride booking, calendar update, and
+  partner notification. The fault is fixed and labeled: the simulated provider
+  commits, the acknowledgement is lost."
 
-## 0:45–1:30 — The fault: baseline books twice, the layer books once (45s)
+## 0:45–1:30 — The fault: three approaches, one fault (45s)
 
-- On screen: click **"▶ Break it: lose the acknowledgement."**
-- Show the BASELINE first: the ack is lost, the agent retries blindly —
-  **two bookings**. Freeze on it. Let the duplicate sit on screen.
-- Then the protected run: the ack is lost, the gateway reconciles the
-  operation journal, reuses the committed receipt, completes the calendar
-  and notification steps. **One booking.**
-- Narration (short — let the before/after do the work): "Same fault. Without
-  the layer: booked twice. With it: the journal remembers what actually
-  happened, so the retry reuses the receipt instead of repeating the action."
+- On screen: click **"▶ Run the booking scenario."**
+- Show the comparison table: **naive retry** — the ack is lost, the agent
+  retries blindly — **two bookings**. Freeze on it. Let the duplicate sit
+  on screen.
+- Then the honest middle column: **idempotency-only** — the provider replays
+  the prior result, **one booking**. Say it plainly: where the provider
+  honors its key, idempotency already prevents the duplicate.
+- Then the **full layer** — one booking, plus the rows idempotency can't
+  reach: provider state lost (the layer halts and asks for human review
+  instead of duplicating), stale write after failover (rejected), unsafe
+  action (blocked).
+- Narration (short — let the table do the work): "Same fault, three
+  approaches. Without anything: booked twice. With idempotency alone: fine —
+  until the provider loses its state. The layer's job is everything the key
+  can't cover: uncertain outcomes, dependent steps, stale agents."
 
 ## 1:30–1:55 — The other two challenges (25s)
 
 - Quick pass, no deep dive: **B — unsafe action**: the compromised agent
   proposes restarting the database; the layer blocks it. **C — stale write**:
-  the fenced agent retries with a revoked generation; rejected before the
-  provider is touched.
+  the fenced agent retries with a revoked generation; rejected at the
+  store/effect boundary.
 - Narration: "Same idea in two more shapes: an unsafe action that never
-  executes, and a stale agent stopped before it can cause a side effect."
+  executes, and a stale agent stopped at the effect boundary."
 
 ## 1:55–2:25 — Proof, not a success message (30s)
 
-- On screen: the recovery receipt. Walk it once: one booking listed, the
-  retry decision ("reused"), what was verified, the remaining steps completed.
-  If the provider's state can't be confirmed, the receipt says
-  "needs human review" — it never manufactures a success.
+- On screen: the recovery receipt **for the successful run**. Walk it once:
+  one booking listed, the retry decision ("reused"), what was verified, the
+  remaining steps completed. (The human-review fallback lives in the
+  comparison table's provider-state-loss row, shown earlier — this receipt is
+  the success case, proven with evidence.)
 - Narration: "Not a success message — evidence. What was booked, what the
-  retry decided, what was actually verified. And when the outcome can't be
-  confirmed, it says so instead of pretending."
+  retry decided, what was actually verified."
 - Beat (10s, to the camera or voiceover): "An idempotency key stops a repeated
   request. It doesn't recover a multi-step workflow after a restart, resolve
   an unknown outcome, or fence a stale agent. That's the layer underneath."

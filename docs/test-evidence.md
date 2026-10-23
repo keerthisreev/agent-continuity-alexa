@@ -1,10 +1,10 @@
 # Test evidence — Alexa+ submission
 
 - Date: 2026-10-23 (early morning, America/Chicago)
-- Branch: feature/final-judge-readiness (PR #8; regenerating from main after merge)
+- Branch: main (final freeze)
 - Command: `for t in test_continuity test_robust test_nemotron test_mcp test_showcase test_sim test_journal; do python3 $t.py; done`
 - Environment: clean venv, Python 3.12.3, with flask, mcp>=2.0, pyyaml, requests installed — **zero skipped tests**
-- Also offline: NEBIUS_API_KEY unset, CONTINUITY_LIVE unset; no network; deterministic (no randomness)
+- Also offline: MODEL_API_KEY unset, CONTINUITY_LIVE unset; no network; deterministic (no randomness)
 
 ## Full output
 ```
@@ -26,12 +26,12 @@ PASS nemotron seam: stub offline, live client ready for her key
 13/13 tests passed
 
 === test_robust ===
-127.0.0.1 - - [23/Oct/2026 00:27:33] "GET / HTTP/1.1" 200 -
-127.0.0.1 - - [23/Oct/2026 00:27:33] "GET /api/health HTTP/1.1" 200 -
-127.0.0.1 - - [23/Oct/2026 00:27:33] "GET /api/timeline?limit=10 HTTP/1.1" 200 -
-127.0.0.1 - - [23/Oct/2026 00:27:33] "GET /api/affected HTTP/1.1" 200 -
-127.0.0.1 - - [23/Oct/2026 00:27:33] "GET /api/money HTTP/1.1" 200 -
-127.0.0.1 - - [23/Oct/2026 00:27:33] "GET /api/report HTTP/1.1" 200 -
+127.0.0.1 - - [23/Oct/2026 00:58:39] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [23/Oct/2026 00:58:39] "GET /api/health HTTP/1.1" 200 -
+127.0.0.1 - - [23/Oct/2026 00:58:39] "GET /api/timeline?limit=10 HTTP/1.1" 200 -
+127.0.0.1 - - [23/Oct/2026 00:58:39] "GET /api/affected HTTP/1.1" 200 -
+127.0.0.1 - - [23/Oct/2026 00:58:39] "GET /api/money HTTP/1.1" 200 -
+127.0.0.1 - - [23/Oct/2026 00:58:39] "GET /api/report HTTP/1.1" 200 -
 PASS config: defaults reproduce behavior; YAML overrides merge
 PASS threaded smoke: 4x25 invocations, no lost updates, no duplicate effects
 PASS checkpoint versioning: unknown schema rejected, failover continues fresh
