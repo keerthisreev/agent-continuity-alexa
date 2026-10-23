@@ -61,17 +61,21 @@ detection.
 **Pre-existing work disclosure.** The continuity engine predates this hackathon
 (private repo, built for the Nebius × NVIDIA hackathon). Everything demoed as
 new was built during the submission window, Oct 22–23, 2026: (1) the
-conversational sim control surface; (2) the baseline-vs-protected ablation
+conversational sim control surface, now with the advertised booking request
+wired to the working recovery flow (type the airport-pickup sentence — the
+chat narrates commit → lost ack → journal check → one booking + receipt); (2) the baseline-vs-protected ablation
 runner; (3) the per-scenario reliability scorecard from the real metrics
 functions; (4) ledger-backed "what happened?" answers via the 7 MCP tools;
 (5) the SQLite operation journal + continuity gateway + lost-ack scenario;
 (6) the recovery receipt (card + JSON export); (7) break-it challenge mode;
 (8) review hardening — the agent/gateway information boundary, full-operation
 fingerprinting, cross-operation key-reuse rejection, and pre-dispatch fencing
-authorization at the gateway; plus the honest restart proof — if the provider's
-state can't be re-verified after a restart, the receipt says "needs human
-review" instead of manufacturing a success. **85/85 tests green, zero skipped**
-(full output in `docs/test-evidence.md`). The demo path is fully deterministic
+authorization at the gateway; the provider itself validates the fencing token
+on every call (defense in depth against the check-then-act race); plus the
+honest restart proof — if the provider's state can't be re-verified after a
+restart, the receipt says "needs human review" instead of manufacturing a
+success. **87/87 tests green, zero skipped** (full output in
+`docs/test-evidence.md`). The demo path is fully deterministic
 and offline — no API key needed to reproduce it.
 
 **Try it.** `python3 -m sim.ablation --failure lost_ack` for the flagship
