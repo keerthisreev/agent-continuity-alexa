@@ -453,45 +453,49 @@ SIM_PAGE = """<!doctype html>
   .cta-row { margin:0 0 14px; max-width:900px; }
   button.cta { background:#f0b429; color:#0d1117; font-weight:bold;
               font-size:16px; padding:12px 22px; }
+  .taskcard { max-width:900px; margin:0 0 14px; background:#161b22;
+              border:1px solid #30363d; border-radius:8px; padding:14px 16px; }
+  .taskcard .req { font-size:15px; margin:6px 0 10px; }
+  .taskcard table.meta { border-collapse:collapse; margin:0 0 12px; font-size:13px; }
+  .taskcard table.meta td { padding:3px 12px 3px 0; color:#c9d1d9; }
+  .taskcard table.meta td.k { color:#8b949e; }
+  .timeline { margin:0 0 12px; }
+  .tl-step { display:flex; gap:10px; margin:8px 0; font-size:14px; line-height:1.5; }
+  .tl-dot { flex:0 0 12px; width:12px; height:12px; border-radius:50%; margin-top:5px; }
 </style></head>
 <body>
 <div class="kicker">Simulated Alexa+ experience · Agent Continuity Layer</div>
 <h1>The booking succeeded. The agent didn't know it.</h1>
-<div class="hero">An AI assistant performs an action, loses the acknowledgement, and tries
-again — the user gets <b>booked twice</b>. This is the moment recovery itself becomes
-dangerous. The layer below prevents the duplicate: the operation journal reconciles what
-actually happened, reuses the committed receipt, completes the remaining steps — and
-produces a receipt proving it.</div>
-<div class="cta-row"><button class="cta" onclick="runChallenge('lost_ack')">▶ Break it:
-lose the acknowledgement</button></div>
+<div class="taskcard">
+<div class="kicker">The task — a fixed sample scenario</div>
+<div class="req">"Arrange an airport pickup for 6:30 tomorrow, add it to my calendar, and send my partner the details."</div>
+<table class="meta">
+<tr><td class="k">What runs</td><td>Ride booking (airport pickup, 6:30 tomorrow) → calendar update → partner notification</td></tr>
+<tr><td class="k">The fault</td><td>The ride provider commits, then the acknowledgement is lost — the agent can't tell whether the booking happened</td></tr>
+<tr><td class="k">The question</td><td>Does the retry book twice? Compare naive retry, idempotency-only, and the full continuity layer.</td></tr>
+</table>
+<div class="cta-row"><button class="cta" onclick="runChallenge('lost_ack','scenario-out')">▶ Run the booking scenario</button></div>
+<div class="tick">No real ride is booked and no real Alexa+ backend is called — deterministic simulation. The request is keyword-matched to this fixed scenario (not parsed as free text). Everything underneath — journal, gateway, fencing, ledger — is the real engine.</div>
+</div>
+<div id="scenario-out"></div>
 <div class="sub"><a href="/">live dashboard</a> &middot;
 <a href="/showcase">scenario showcase</a></div>
 <div class="honest">Honest simulation: the chat and intent mapping are simulated
 (deterministic keyword matching — no network, no model, no API keys). Everything underneath —
 the four-agent workflow, gray-failure detection, fencing, standby failover, checkpoints —
 is the real continuity engine, driven with zero mocks.</div>
-<div class="guide"><h2>Break-it challenge — three faults, baseline vs layer, with receipt</h2>
+<div class="guide"><h2>Explore other failure modes</h2>
 <ol>
-<li><b>A · Lose the acknowledgement</b> — the ride provider commits the booking, but the ack never arrives. Does the retry book twice?</li>
 <li><b>B · Propose an unsafe action</b> — the compromised agent proposes <i>restart:database</i>. The workflow alone executes it; the layer blocks it.</li>
 <li><b>C · Stale write after failover</b> — the fenced primary retries with its revoked generation. The store rejects it.</li>
+<li><b>The gray failure (the original demo)</b> — "Investigate incident INC-1043 and prepare a remediation plan. Don't execute an unsafe action." Then "Inject a gray failure": a <b>deterministic, preconfigured</b> fault where the scripted backend returns a plausible-but-wrong plan violating the invariant <i>never restart the database for this incident class</i>. "Continue" shows the outside-view vs sentinel contrast and the resume proof; "Test the fence" retries with the revoked generation; "What happened to my tasks?" gives the three-bucket report + scorecard (times in <b>ticks</b>, not seconds).</li>
 </ol>
 <div class="chips">
-  <span class="chip" data-challenge="lost_ack">A · lose the acknowledgement</span>
   <span class="chip" data-challenge="unsafe">B · propose an unsafe action</span>
   <span class="chip" data-challenge="stale_write">C · stale write after failover</span>
+  <span class="chip" data-q="Investigate incident INC-1043 and prepare a remediation plan. Don't execute an unsafe action.">investigate INC-1043</span>
 </div>
 <div class="tick">Deterministic, preconfigured faults — never generalized AI-failure detection. Times in ticks, not seconds. Each challenge ends with a recovery receipt built from the journal + ledger.</div></div>
-<div class="guide"><h2>Second beat: the gray failure (the original demo)</h2>
-<ol>
-<li>"Investigate incident INC-1043 and prepare a remediation plan. Don't execute an unsafe action."</li>
-<li>"Inject a gray failure." — a <b>deterministic, preconfigured</b> fault: the scripted backend returns a plausible-but-wrong plan violating the invariant <i>never restart the database for this incident class</i>.</li>
-<li>"Continue." — watch the outside-view vs sentinel contrast, then the resume proof.</li>
-<li>"Test the fence." — the fenced primary retries with its revoked generation; the store rejects it.</li>
-<li>"What happened to my tasks?" — the three-bucket report + reliability scorecard (times in <b>ticks</b>, not seconds).</li>
-<li>"Run the ablation." — workflow alone vs workflow + layer, from real runs.</li>
-</ol>
-<div class="tick">Three fault scenarios: gray semantic violation · silent dependency failure · stale write from a fenced agent. Each states its enforced invariant up front — never generalized AI-failure detection.</div></div>
 <div id="chat"></div>
 <div class="chips">
   <span class="chip" data-q="Arrange an airport pickup for 6:30 tomorrow, add it to my calendar, and send my partner the details.">book airport pickup</span>
@@ -545,14 +549,16 @@ document.getElementById('send').onclick = ()=>send();
 document.getElementById('q').addEventListener('keydown', e=>{ if(e.key==='Enter') send(); });
 document.querySelectorAll('.chip').forEach(c=>{ if(!c.dataset.challenge) c.onclick = ()=>send(c.dataset.q); });
 document.querySelectorAll('[data-challenge]').forEach(c=>{ c.onclick = ()=>runChallenge(c.dataset.challenge); });
-function runChallenge(scenario){
-  addRaw('<div class="msg bot">Running the challenge against the real engine…</div>');
+function runChallenge(scenario, target){
+  var out = target ? document.getElementById(target) : null;
+  var show = function(html){ if(out){ out.innerHTML = html; out.scrollIntoView({behavior:'smooth', block:'start'}); } else addRaw(html); };
+  show('<div class="msg bot">Running the challenge against the real engine…</div>');
   fetch('/sim/api/challenge', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({scenario: scenario})
-  }).then(r=>r.json()).then(d=>{ addRaw(d.html); });
+  }).then(r=>r.json()).then(d=>{ show(d.html); });
 }
-addBot(md("Hi — I'm a **simulated** front-end for the Agent Continuity Layer. **Try the big button above**: I'll book a ride, lose the acknowledgement, and show you why the retry doesn't book twice. Or type the booking request yourself: **\\"Arrange an airport pickup for 6:30 tomorrow, add it to my calendar, and send my partner the details.\\"**"));
+addBot(md("Hi — I'm a **simulated** front-end for the Agent Continuity Layer. **Run the booking scenario above**: the provider commits, the ack is lost, and you'll see whether the retry books twice — naive vs idempotency-only vs the full layer, from real runs. Or type the booking request yourself: **\\"Arrange an airport pickup for 6:30 tomorrow, add it to my calendar, and send my partner the details.\\"**"));
 </script></body></html>
 """
 
@@ -700,19 +706,51 @@ def _render_sim_message(msg: dict) -> str:
             '</div>')
     if kind == "challenge":
         c = msg["comparison"]
-        rows = "".join(
-            f'<tr><td class="kv"><b>{_sim_escape(r["aspect"])}</b></td>'
-            f'<td>{_sim_escape(r["baseline"])}</td>'
-            f'<td>{_sim_escape(r["protected"])}</td></tr>'
-            for r in c["rows"])
+        three_way = c.get("three_way", False)
+        if three_way:
+            rows = "".join(
+                f'<tr><td class="kv"><b>{_sim_escape(r["aspect"])}</b></td>'
+                f'<td>{_sim_escape(r["baseline"])}</td>'
+                f'<td>{_sim_escape(r["idempotency_only"])}</td>'
+                f'<td>{_sim_escape(r["protected"])}</td></tr>'
+                for r in c["rows"])
+            header = ('<table class="cmp"><tr><th></th><th>Naive retry</th>'
+                      '<th>Idempotency-only</th><th>Full continuity layer</th></tr>'
+                      + rows + '</table>')
+            sub = ('three approaches, same fault — every cell measured from '
+                   'the runs\u2019 own records. Idempotency-only matches the '
+                   'full layer where the provider honors its key; the layer\u2019s '
+                   'edge is uncertain outcomes, dependent-step safety, and '
+                   'stale-agent fencing.')
+        else:
+            rows = "".join(
+                f'<tr><td class="kv"><b>{_sim_escape(r["aspect"])}</b></td>'
+                f'<td>{_sim_escape(r["baseline"])}</td>'
+                f'<td>{_sim_escape(r["protected"])}</td></tr>'
+                for r in c["rows"])
+            header = ('<table class="cmp"><tr><th></th><th>Workflow alone</th>'
+                      '<th>Workflow + layer</th></tr>' + rows + '</table>')
+            sub = 'same steps both sides — the only difference is the layer.'
+        tl = ""
+        for t in msg.get("timeline", []):
+            dot = "#3fb950" if t["state"] == "ok" else "#f0b429"
+            tl += (f'<div class="tl-step"><span class="tl-dot" '
+                   f'style="background:{dot}"></span>'
+                   f'<div><b>{_sim_escape(t["phase"])}. '
+                   f'{_sim_escape(t["title"])}</b><br>'
+                   f'<span class="tick">{_sim_escape(t["detail"])}</span>'
+                   f'</div></div>')
+        if tl:
+            tl = (f'<div class="timeline"><div class="kicker" '
+                  f'style="margin-bottom:6px">Recovery timeline — from this run\u2019s records</div>'
+                  f'{tl}</div>')
         return (
             '<div class="reportbox"><h3>'
             f'{_sim_escape(msg.get("title", "Break-it challenge"))}</h3>'
             f'<div class="tick" style="margin-bottom:8px">incident {c["incident_id"]} · '
             f'failure {c["failure"]} (deterministic, preconfigured scripted fault) · '
-            'same steps both sides — the only difference is the layer.</div>'
-            '<table class="cmp"><tr><th></th><th>Workflow alone</th>'
-            '<th>Workflow + layer</th></tr>' + rows + '</table>'
+            f'{sub}</div>'
+            + tl + header +
             f'<pre class="score">{_sim_escape(chr(10).join(_render_scorecard_text(c["scorecard"])))}</pre>'
             + _render_receipt(msg["receipt"]) +
             '</div>')

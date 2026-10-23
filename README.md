@@ -78,7 +78,7 @@ python3 test_nemotron.py     # 12/12: Nemotron seam, offline-safe
 python3 test_mcp.py          # 11/11: MCP read-only ledger
 python3 test_showcase.py     #  7/7: dashboard scenario gallery
 python3 test_sim.py          # 18/18: Alexa+ sim (initiate -> interrupt -> resume + booking flow)
-python3 test_journal.py      # 18/18: operation journal + gateway + lost-ack scenario
+python3 test_journal.py      # 21/21: operation journal + gateway + lost-ack scenario
 python3 demo.py              # the story, zero narration
 python3 demo.py --failure gray
 python3 dashboard/app.py     # live dashboard -> http://127.0.0.1:5000/
@@ -88,7 +88,7 @@ python3 examples/wrap_existing.py   # wrap YOUR agent shape without touching it
 Run everything at once:
 ```bash
 for t in test_continuity test_robust test_nemotron test_mcp test_showcase test_sim test_journal; do python3 $t.py; done
-# expected: 88/88 green, zero network calls, no API keys required
+# expected: 91/91 green, zero network calls, no API keys required
 ```
 
 **Alexa+ track submission (simulated Alexa+ experience, this repo's `main` branch):**
@@ -100,13 +100,15 @@ python3 test_sim.py          # 18/18: the sim's own proof
 ```
 No API keys, no network — everything above runs fully offline and deterministic.
 
-**Commit-aware recovery (the continuity demo):** the `/sim` page has a
-break-it challenge panel with three buttons — *lose the acknowledgement*,
-*propose an unsafe action*, *stale write after failover*. Each runs baseline vs
-layer side-by-side and ends with a **recovery receipt** (per-operation effect
-receipt, retry decision, checkpoint, fencing decision, final verified state —
-every field read off the journal + forensic ledger, never hard-coded; JSON at
-`GET /sim/api/receipt/<incident_id>`). The engine underneath is
+**Commit-aware recovery (the continuity demo):** the `/sim` page opens with the
+booking task card and a run button — the recovery timeline, the three-way
+comparison (naive retry vs idempotency-only vs full layer), and the **recovery
+receipt** render from the run's own records (per-operation effect receipt,
+retry decision, checkpoint, fencing decision, final verified state — every
+field read off the journal + forensic ledger, never hard-coded; JSON at
+`GET /sim/api/receipt/<incident_id>`). The measured results table is
+`docs/results-table.md` (regenerate: `python3 scripts/gen_results_table.py`).
+The engine underneath is
 `continuity/journal.py`: a SQLite operation journal (WAL, explicit commits,
 crash-safe) with reconcile-before-retry discipline — same idempotency key +
 same full operation (service, op, target, params) reuses the committed
