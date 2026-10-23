@@ -328,6 +328,66 @@ def test_booking_utterance_runs_the_booking_flow():
     print("PASS booking: advertised utterance -> narrated recovery + receipt")
 
 
+def _dashboard_client():
+    from dashboard.app import create_app
+    try:
+        app = create_app()
+    except TypeError:
+        import dashboard.app as appmod
+        app = appmod.app
+    app.config["TESTING"] = True
+    return app.test_client()
+
+
+def test_challenge_verdict_badges_render():
+    client = _dashboard_client()
+    html = client.post("/sim/api/challenge",
+                       json={"scenario": "lost_ack"}).get_json()["html"]
+    assert 'class="verdict ok"' in html, "lost_ack challenge must show a success verdict badge"
+    assert "no duplicates" in html.lower(), html
+    assert 'class="verdict warn"' in html, "lost_ack must flag the halted provider-state-loss variant"
+    assert "human review" in html.lower(), html
+    html_u = client.post("/sim/api/challenge",
+                         json={"scenario": "unsafe"}).get_json()["html"]
+    assert "blocked" in html_u.lower(), html_u
+    html_s = client.post("/sim/api/challenge",
+                         json={"scenario": "stale_write"}).get_json()["html"]
+    assert "rejected" in html_s.lower(), html_s
+    print("PASS ui: challenge verdict badges render for all three scenarios")
+
+
+def test_receipt_halt_styling_on_human_review():
+    from dashboard.app import _render_receipt
+    halted_receipt = {
+        "incident_id": "CHAL-TEST-1", "operations": [],
+        "checkpoint": "n/a", "fencing": "n/a",
+        "final_state": {"disposition": "halted",
+                        "duplicates_prevented": 0,
+                        "human_review_flags": ["provider state unverifiable"]},
+    }
+    html = _render_receipt(halted_receipt)
+    assert 'class="receipt halt"' in html, "halted receipt must carry the halt style"
+    assert "human review required" in html.lower(), html
+    clean_receipt = dict(halted_receipt)
+    clean_receipt["final_state"] = {"disposition": "completed clean",
+                                    "duplicates_prevented": 1,
+                                    "human_review_flags": []}
+    html2 = _render_receipt(clean_receipt)
+    assert 'class="receipt halt"' not in html2, "clean receipt must not look halted"
+    print("PASS ui: receipt halt styling tracks human_review_flags honestly")
+
+
+def test_sim_page_has_reset_and_light_theme():
+    client = _dashboard_client()
+    html = client.get("/sim").get_data(as_text=True)
+    assert 'id="runBtn"' in html, "primary CTA must keep its id"
+    assert "resetDemo()" in html, "reset flow must exist"
+    assert "--bg: #f6f8fa" in html, "light theme tokens must be present"
+    assert "Run the booking scenario" in html, html
+    assert "simulated" in html.lower(), "simulated disclosure must be present"
+    print("PASS ui: /sim page has reset, light theme, CTA, and simulated disclosure")
+
+
 TESTS = [test_nlu_conversational_prompt_shape,
          test_nlu_all_task_specs,
          test_nlu_control_intents,
@@ -345,7 +405,10 @@ TESTS = [test_nlu_conversational_prompt_shape,
          test_ablation_silent_failure,
          test_incident_timeline_includes_failover_evidence,
          test_no_banned_language_in_new_files,
-         test_booking_utterance_runs_the_booking_flow]
+         test_booking_utterance_runs_the_booking_flow,
+         test_challenge_verdict_badges_render,
+         test_receipt_halt_styling_on_human_review,
+         test_sim_page_has_reset_and_light_theme]
 
 
 def main() -> int:

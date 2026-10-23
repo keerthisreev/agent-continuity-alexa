@@ -385,117 +385,184 @@ SIM_PAGE = """<!doctype html>
 <html><head><meta charset="utf-8">
 <title>Simulated Alexa+ experience -- Agent Continuity Layer</title>
 <style>
-  body { background:#0d1117; color:#e6edf3; font-family:ui-monospace,Menlo,Consolas,monospace;
-         margin:0; padding:18px; font-size:15px; }
-  h1 { font-size:22px; margin:0 0 4px; }
-  .sub { color:#8b949e; margin-bottom:6px; line-height:1.6; max-width:900px; }
-  .sub a { color:#58a6ff; }
-  .honest { color:#d29922; font-size:13px; margin-bottom:14px; max-width:900px; line-height:1.6; }
-  .guide { background:#161b22; border:1px solid #30363d; border-radius:8px; padding:12px;
-           margin-bottom:14px; max-width:900px; }
-  .guide h2 { font-size:13px; text-transform:uppercase; letter-spacing:1px; color:#8b949e; margin:0 0 8px; }
-  .guide ol { margin:0; padding-left:20px; line-height:1.7; color:#c9d1d9; }
-  #chat { max-width:900px; }
-  .msg { margin:10px 0; padding:10px 14px; border-radius:8px; line-height:1.65; }
-  .user { background:#1c2b4a; border:1px solid #2f4a7a; margin-left:60px; white-space:pre-wrap; }
-  .bot { background:#161b22; border:1px solid #30363d; margin-right:40px; white-space:pre-wrap; }
-  .contrast { background:#161b22; border:1px solid #d29922; border-radius:8px; padding:12px;
-              margin:10px 40px 10px 0; }
-  .contrast h3 { margin:0 0 10px; font-size:16px; color:#f0b429; }
-  .cgrid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
-  .card { border-radius:6px; padding:10px 12px; }
-  .card h4 { margin:0 0 8px; font-size:13px; text-transform:uppercase; letter-spacing:1px; }
-  .card ul { margin:0; padding-left:18px; line-height:1.7; }
-  .outside { background:#21262d; } .outside h4 { color:#8b949e; }
-  .sentinelc { background:#3d1f1f; border:1px solid #e74c3c; } .sentinelc h4 { color:#ff7b72; }
-  .punchline { margin-top:10px; color:#f0b429; font-weight:bold; line-height:1.6; }
-  .resumebox { background:#12261c; border:1px solid #2ecc71; border-radius:8px; padding:12px;
-               margin:10px 40px 10px 0; }
-  .resumebox h3 { margin:0 0 8px; color:#2ecc71; font-size:16px; }
-  .reportbox { background:#161b22; border:1px solid #58a6ff; border-radius:8px; padding:12px;
-               margin:10px 40px 10px 0; }
-  .reportbox h3 { margin:0 0 10px; color:#58a6ff; font-size:16px; }
-  .receipt { background:#0d1117; border:1px solid #2ecc71; border-radius:8px;
-             padding:12px; margin-top:12px; }
-  .receipt h4 { margin:0 0 10px; color:#2ecc71; font-size:15px; }
-  .receipt .kvrow { display:grid; grid-template-columns:180px 1fr; gap:8px;
-                    padding:5px 0; border-bottom:1px solid #21262d; line-height:1.6; }
-  .buckets { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:10px; }
-  .bucket { border-radius:6px; padding:10px 12px; }
-  .bucket h4 { margin:0 0 8px; font-size:13px; text-transform:uppercase; letter-spacing:1px; }
-  .bucket ul { margin:0; padding-left:18px; }
-  .b-ok { background:#12261c; border:1px solid #2ecc71; } .b-ok h4 { color:#2ecc71; }
-  .b-rec { background:#1c2b4a; border:1px solid #58a6ff; } .b-rec h4 { color:#58a6ff; }
-  .b-rev { background:#3d1f1f; border:1px solid #e74c3c; } .b-rev h4 { color:#ff7b72; }
-  .narr { border-left:3px solid #58a6ff; padding:8px 12px; margin:10px 0; line-height:1.6; color:#c9d1d9; }
-  pre.score { background:#0d1117; border:1px solid #30363d; border-radius:6px; padding:10px 12px;
-              overflow-x:auto; line-height:1.7; }
-  table.cmp { border-collapse:collapse; width:100%; margin:10px 0; }
-  table.cmp th, table.cmp td { text-align:left; padding:8px 10px; border:1px solid #30363d;
-                               vertical-align:top; line-height:1.6; }
-  table.cmp th { background:#21262d; }
-  .kv { color:#8b949e; }
-  #composer { max-width:900px; margin-top:14px; display:flex; gap:8px; }
-  #q { flex:1; background:#161b22; border:1px solid #30363d; border-radius:6px; color:#e6edf3;
-       padding:10px 12px; font-size:15px; font-family:inherit; }
-  button { background:#238636; border:none; border-radius:6px; color:#fff; padding:10px 16px;
-           font-size:14px; cursor:pointer; font-family:inherit; }
-  button.alt { background:#21262d; border:1px solid #30363d; }
-  .chips { max-width:900px; margin:10px 0; display:flex; flex-wrap:wrap; gap:8px; }
-  .chip { background:#161b22; border:1px solid #58a6ff; color:#58a6ff; border-radius:16px;
-          padding:6px 12px; font-size:13px; cursor:pointer; }
-  .tick { color:#8b949e; }
-  .kicker { color:#8b949e; font-size:12px; text-transform:uppercase;
-           letter-spacing:2px; margin-bottom:8px; }
-  h1 { font-size:26px; margin:0 0 10px; max-width:900px; line-height:1.3; }
-  .hero { font-size:16px; line-height:1.7; max-width:900px; margin-bottom:14px;
-          border-left:3px solid #f0b429; padding-left:14px; }
-  .cta-row { margin:0 0 14px; max-width:900px; }
-  button.cta { background:#f0b429; color:#0d1117; font-weight:bold;
-              font-size:16px; padding:12px 22px; }
-  .taskcard { max-width:900px; margin:0 0 14px; background:#161b22;
-              border:1px solid #30363d; border-radius:8px; padding:14px 16px; }
-  .taskcard .req { font-size:15px; margin:6px 0 10px; }
-  .taskcard table.meta { border-collapse:collapse; margin:0 0 12px; font-size:13px; }
-  .taskcard table.meta td { padding:3px 12px 3px 0; color:#c9d1d9; }
-  .taskcard table.meta td.k { color:#8b949e; }
-  .timeline { margin:0 0 12px; }
-  .tl-step { display:flex; gap:10px; margin:8px 0; font-size:14px; line-height:1.5; }
-  .tl-dot { flex:0 0 12px; width:12px; height:12px; border-radius:50%; margin-top:5px; }
+  :root {
+    --bg: #f6f8fa; --card: #ffffff; --border: #d8dee4;
+    --text: #1f2328; --muted: #57606a; --faint: #8b949e;
+    --accent: #0969da; --accent-dark: #0550ae;
+    --ok: #1a7f37; --ok-bg: #dafbe1;
+    --warn: #9a6700; --warn-bg: #fff8c5;
+    --bad: #cf222e; --bad-bg: #ffebe9;
+    --code-bg: #f6f8fa;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: var(--sans);
+         margin: 0; padding: 0; font-size: 16px; line-height: 1.6;
+         -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 32px 24px 64px; }
+  .kicker { color: var(--faint); font-size: 12px; text-transform: uppercase;
+            letter-spacing: 2px; margin-bottom: 10px; font-weight: 600; }
+  h1 { font-size: 34px; margin: 0 0 12px; line-height: 1.25; letter-spacing: -0.5px; }
+  .lede { font-size: 18px; color: var(--muted); max-width: 720px; margin: 0 0 28px; }
+  .taskcard { background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+              padding: 22px 24px; margin: 0 0 20px; box-shadow: 0 1px 3px rgba(31,35,40,.06); }
+  .taskcard .req { font-size: 18px; margin: 4px 0 16px; padding-left: 14px;
+                   border-left: 3px solid var(--accent); color: var(--text); }
+  .taskcard table.meta { border-collapse: collapse; margin: 0 0 18px; font-size: 14px; width: 100%; }
+  .taskcard table.meta td { padding: 6px 12px 6px 0; color: var(--text); vertical-align: top; }
+  .taskcard table.meta td.k { color: var(--muted); white-space: nowrap; font-weight: 600; width: 110px; }
+  .cta-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 0 0 14px; }
+  button { font-family: var(--sans); font-size: 15px; border-radius: 8px; cursor: pointer;
+           border: 1px solid transparent; }
+  button.cta { background: var(--accent); color: #fff; font-weight: 600;
+               font-size: 16px; padding: 13px 26px; }
+  button.cta:hover { background: var(--accent-dark); }
+  button.cta:disabled { background: var(--faint); cursor: wait; }
+  button.ghost { background: var(--card); border-color: var(--border); color: var(--muted);
+                 padding: 13px 18px; font-size: 15px; }
+  button.ghost:hover { color: var(--text); border-color: var(--faint); }
+  .disclosure { color: var(--muted); font-size: 13px; max-width: 720px; }
+  .disclosure strong { color: var(--text); }
+  #scenario-out { margin: 8px 0 24px; }
+  #scenario-out:empty { display: none; }
+  .loading { background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+             padding: 28px; text-align: center; color: var(--muted); }
+  .spinner { display: inline-block; width: 22px; height: 22px; margin-right: 10px;
+             border: 3px solid var(--border); border-top-color: var(--accent);
+             border-radius: 50%; animation: spin 0.9s linear infinite; vertical-align: -5px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .section-head { font-size: 13px; text-transform: uppercase; letter-spacing: 1.5px;
+                  color: var(--faint); font-weight: 700; margin: 32px 0 12px; }
+  .msg { margin: 12px 0; padding: 14px 18px; border-radius: 12px; line-height: 1.65; }
+  .user { background: #ddf4ff; border: 1px solid #b6e3ff; margin-left: 48px; white-space: pre-wrap; }
+  .bot { background: var(--card); border: 1px solid var(--border); margin-right: 32px;
+         white-space: pre-wrap; box-shadow: 0 1px 2px rgba(31,35,40,.05); }
+  .contrast { background: var(--card); border: 1px solid var(--warn); border-radius: 12px;
+              padding: 18px 20px; margin: 12px 32px 12px 0; }
+  .contrast h3 { margin: 0 0 10px; font-size: 17px; color: var(--warn); }
+  .cgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .card { border-radius: 8px; padding: 12px 14px; background: var(--bg); border: 1px solid var(--border); }
+  .card h4 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+  .card ul { margin: 0; padding-left: 18px; line-height: 1.7; font-size: 14px; }
+  .sentinelc { border-color: var(--bad); background: var(--bad-bg); }
+  .sentinelc h4 { color: var(--bad); }
+  .punchline { margin-top: 12px; color: var(--warn); font-weight: 600; line-height: 1.6; }
+  .resumebox { background: var(--ok-bg); border: 1px solid var(--ok); border-radius: 12px;
+                padding: 18px 20px; margin: 12px 32px 12px 0; }
+  .resumebox h3 { margin: 0 0 8px; color: var(--ok); font-size: 17px; }
+  .reportbox { background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+                padding: 20px 22px; margin: 12px 0; box-shadow: 0 1px 3px rgba(31,35,40,.06); }
+  .reportbox h3 { margin: 0 0 8px; color: var(--text); font-size: 19px; letter-spacing: -0.2px; }
+  .reportbox > .tick { margin-bottom: 14px; }
+  .verdict { display: inline-block; font-size: 12px; font-weight: 700; text-transform: uppercase;
+             letter-spacing: 1px; padding: 4px 10px; border-radius: 20px; margin-bottom: 10px; }
+  .verdict.ok { background: var(--ok-bg); color: var(--ok); }
+  .verdict.warn { background: var(--warn-bg); color: var(--warn); }
+  .verdict.bad { background: var(--bad-bg); color: var(--bad); }
+  .receipt { background: var(--card); border: 1px solid var(--ok); border-left-width: 4px;
+             border-radius: 8px; padding: 18px 20px; margin-top: 16px; }
+  .receipt.halt { border-color: var(--warn); }
+  .receipt h4 { margin: 0 0 10px; color: var(--text); font-size: 16px; }
+  .receipt .kvrow { display: grid; grid-template-columns: 170px 1fr; gap: 10px;
+                    padding: 7px 0; border-bottom: 1px solid var(--border); line-height: 1.6; font-size: 14px; }
+  .receipt .kvrow:last-child { border-bottom: none; }
+  .buckets { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+  .bucket { border-radius: 8px; padding: 12px 14px; border: 1px solid var(--border); background: var(--bg); }
+  .bucket h4 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
+  .bucket ul { margin: 0; padding-left: 18px; font-size: 14px; }
+  .b-ok { border-color: var(--ok); background: var(--ok-bg); } .b-ok h4 { color: var(--ok); }
+  .b-rec { border-color: var(--accent); background: #ddf4ff; } .b-rec h4 { color: var(--accent); }
+  .b-rev { border-color: var(--bad); background: var(--bad-bg); } .b-rev h4 { color: var(--bad); }
+  .narr { border-left: 3px solid var(--accent); padding: 10px 14px; margin: 12px 0;
+          line-height: 1.6; color: var(--muted); font-size: 15px; background: var(--card); }
+  pre.score { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px;
+              padding: 14px 16px; overflow-x: auto; line-height: 1.7; font-size: 13px;
+              font-family: var(--mono); }
+  .table-scroll { overflow-x: auto; margin: 12px 0; border: 1px solid var(--border);
+                  border-radius: 8px; }
+  table.cmp { border-collapse: collapse; width: 100%; min-width: 640px; font-size: 14px; }
+  table.cmp th, table.cmp td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border);
+                               vertical-align: top; line-height: 1.6; }
+  table.cmp th { background: var(--bg); font-size: 13px; color: var(--muted);
+                 text-transform: none; }
+  table.cmp tr:last-child td { border-bottom: none; }
+  .kv { color: var(--muted); }
+  .kv b { color: var(--text); }
+  #composer { margin-top: 16px; display: flex; gap: 8px; }
+  #q { flex: 1; background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+       color: var(--text); padding: 12px 14px; font-size: 15px; font-family: var(--sans); }
+  #q:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: var(--accent); }
+  #send { background: var(--accent); color: #fff; padding: 12px 20px; font-weight: 600; }
+  #send:hover { background: var(--accent-dark); }
+  .chips { margin: 12px 0; display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { background: var(--card); border: 1px solid var(--accent); color: var(--accent);
+          border-radius: 20px; padding: 7px 14px; font-size: 13px; cursor: pointer; font-weight: 500; }
+  .chip:hover { background: #ddf4ff; }
+  .tick { color: var(--muted); font-size: 13px; }
+  .honest { background: var(--warn-bg); border: 1px solid #e3b341; border-radius: 8px;
+            color: #5a4a00; font-size: 13px; padding: 12px 16px; margin: 20px 0; line-height: 1.6; }
+  .guide { background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+           padding: 20px 22px; margin-bottom: 16px; }
+  .guide h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 1.5px;
+              color: var(--faint); margin: 0 0 10px; font-weight: 700; }
+  .guide ol { margin: 0 0 6px; padding-left: 20px; line-height: 1.7; color: var(--text); font-size: 15px; }
+  .sub { color: var(--muted); font-size: 14px; }
+  .sub a { color: var(--accent); }
+  .timeline { margin: 0 0 14px; }
+  .tl-step { display: flex; gap: 12px; margin: 10px 0; font-size: 14px; line-height: 1.55; }
+  .tl-dot { flex: 0 0 12px; width: 12px; height: 12px; border-radius: 50%; margin-top: 5px; }
+  .foot { margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+          color: var(--faint); font-size: 13px; }
+  @media (max-width: 720px) {
+    h1 { font-size: 26px; }
+    .lede { font-size: 16px; }
+    .wrap { padding: 20px 16px 48px; }
+    .cgrid, .buckets { grid-template-columns: 1fr; }
+    .msg.user { margin-left: 0; }
+    .msg.bot, .contrast, .resumebox { margin-right: 0; }
+    .receipt .kvrow { grid-template-columns: 1fr; gap: 2px; }
+    .taskcard table.meta td.k { width: 88px; }
+  }
 </style></head>
 <body>
-<div class="kicker">Simulated Alexa+ experience · Agent Continuity Layer</div>
+<div class="wrap">
+<div class="kicker">Simulated Alexa+ experience &middot; Agent Continuity Layer</div>
 <h1>The booking succeeded. The agent didn't know it.</h1>
+<p class="lede">When an AI assistant loses the acknowledgement for an action that may already have
+committed, retrying blindly can book twice. The Agent Continuity Layer reconciles the recorded
+operation, resumes the workflow, or stops for human review — never guesses.</p>
 <div class="taskcard">
 <div class="kicker">The task — a fixed sample scenario</div>
-<div class="req">"Arrange an airport pickup for 6:30 tomorrow, add it to my calendar, and send my partner the details."</div>
+<div class="req">&ldquo;Arrange an airport pickup for 6:30 tomorrow, add it to my calendar, and send my partner the details.&rdquo;</div>
 <table class="meta">
-<tr><td class="k">What runs</td><td>Ride booking (airport pickup, 6:30 tomorrow) → calendar update → partner notification</td></tr>
+<tr><td class="k">What runs</td><td>Ride booking (airport pickup, 6:30 tomorrow) &rarr; calendar update &rarr; partner notification</td></tr>
 <tr><td class="k">The fault</td><td>The ride provider commits, then the acknowledgement is lost — the agent can't tell whether the booking happened</td></tr>
 <tr><td class="k">The question</td><td>Does the retry book twice? Compare naive retry, idempotency-only, and the full continuity layer.</td></tr>
 </table>
-<div class="cta-row"><button class="cta" onclick="runChallenge('lost_ack','scenario-out')">▶ Run the booking scenario</button></div>
-<div class="tick">No real ride is booked and no real Alexa+ backend is called — deterministic simulation. The request is keyword-matched to this fixed scenario (not parsed as free text). Everything underneath — journal, gateway, fencing, ledger — is the real engine.</div>
+<div class="cta-row">
+<button class="cta" id="runBtn" onclick="runChallenge('lost_ack','scenario-out')">&#9654; Run the booking scenario</button>
+<button class="ghost" onclick="resetDemo()">Reset demo</button>
+</div>
+<div class="disclosure"><strong>Simulated demo.</strong> No real ride is booked and no real Alexa+ backend is called.
+The request is keyword-matched to this fixed scenario (not parsed as free text). The booking provider,
+calendar, and notification services are simulated; the journal, gateway, fencing, and ledger underneath are the real engine.</div>
 </div>
 <div id="scenario-out"></div>
-<div class="sub"><a href="/">live dashboard</a> &middot;
-<a href="/showcase">scenario showcase</a></div>
-<div class="honest">Honest simulation: the chat and intent mapping are simulated
-(deterministic keyword matching — no network, no model, no API keys). The continuity
-mechanisms execute in the real code; the booking provider, calendar, notification
-services, and injected faults are simulated.</div>
-<div class="guide"><h2>Explore other failure modes</h2>
+<div class="section-head">Explore other failure modes</div>
+<div class="guide">
 <ol>
-<li><b>B · Propose an unsafe action</b> — the compromised agent proposes <i>restart:database</i>. The workflow alone executes it; the layer blocks it.</li>
-<li><b>C · Stale write after failover</b> — the fenced primary retries with its revoked generation. The store rejects it.</li>
-<li><b>The gray failure (the original demo)</b> — "Investigate incident INC-1043 and prepare a remediation plan. Don't execute an unsafe action." Then "Inject a gray failure": a <b>deterministic, preconfigured</b> fault where the scripted backend returns a plausible-but-wrong plan violating the invariant <i>never restart the database for this incident class</i>. "Continue" shows the outside-view vs sentinel contrast and the resume proof; "Test the fence" retries with the revoked generation; "What happened to my tasks?" gives the three-bucket report + scorecard (times in <b>ticks</b>, not seconds).</li>
+<li><b>B &middot; Propose an unsafe action</b> — a compromised agent proposes <i>restart:database</i>. The workflow alone executes it; the layer blocks it.</li>
+<li><b>C &middot; Stale write after failover</b> — the fenced primary retries with its revoked generation. The store rejects it.</li>
+<li><b>The gray failure (the original demo)</b> — investigate incident INC-1043, then inject a gray failure: a <b>deterministic, preconfigured</b> fault. "Continue" shows the outside-view vs sentinel contrast and the resume proof; "Test the fence" retries with the revoked generation; "What happened to my tasks?" gives the three-bucket report and scorecard (times in <b>ticks</b>, not seconds).</li>
 </ol>
 <div class="chips">
-  <span class="chip" data-challenge="unsafe">B · propose an unsafe action</span>
-  <span class="chip" data-challenge="stale_write">C · stale write after failover</span>
+  <span class="chip" data-challenge="unsafe">B &middot; propose an unsafe action</span>
+  <span class="chip" data-challenge="stale_write">C &middot; stale write after failover</span>
   <span class="chip" data-q="Investigate incident INC-1043 and prepare a remediation plan. Don't execute an unsafe action.">investigate INC-1043</span>
 </div>
-<div class="tick">Deterministic, preconfigured faults — never generalized AI-failure detection. Times in ticks, not seconds. Each challenge ends with a recovery receipt built from the journal + ledger.</div></div>
+<div class="tick">Deterministic, preconfigured faults — never generalized AI-failure detection. Each challenge ends with a recovery receipt built from the journal + ledger.</div></div>
+<div class="section-head">Ask the simulated assistant</div>
 <div id="chat"></div>
 <div class="chips">
   <span class="chip" data-q="Arrange an airport pickup for 6:30 tomorrow, add it to my calendar, and send my partner the details.">book airport pickup</span>
@@ -512,6 +579,13 @@ services, and injected faults are simulated.</div>
 <div id="composer">
   <input id="q" placeholder="Ask in plain language — e.g. investigate incident INC-1043…" autocomplete="off">
   <button id="send">Send</button>
+</div>
+<div class="honest"><strong>Honest simulation.</strong> The chat and intent mapping are simulated
+(deterministic keyword matching — no network, no model, no API keys). The continuity
+mechanisms execute in the real code; the booking provider, calendar, notification
+services, and injected faults are simulated.</div>
+<div class="foot"><span class="sub"><a href="/">live dashboard</a> &middot;
+<a href="/showcase">scenario showcase</a></span></div>
 </div>
 <script>
 let sessionId = null;
@@ -551,14 +625,41 @@ document.querySelectorAll('.chip').forEach(c=>{ if(!c.dataset.challenge) c.oncli
 document.querySelectorAll('[data-challenge]').forEach(c=>{ c.onclick = ()=>runChallenge(c.dataset.challenge); });
 function runChallenge(scenario, target){
   var out = target ? document.getElementById(target) : null;
-  var show = function(html){ if(out){ out.innerHTML = html; out.scrollIntoView({behavior:'smooth', block:'start'}); } else addRaw(html); };
-  show('<div class="msg bot">Running the challenge against the real engine…</div>');
+  var btn = document.getElementById('runBtn');
+  if(btn){ btn.disabled = true; }
+  var wrapTables = function(){
+    document.querySelectorAll('table.cmp').forEach(function(t){
+      if(!t.parentElement.classList.contains('table-scroll')){
+        var w = document.createElement('div'); w.className = 'table-scroll';
+        t.parentNode.insertBefore(w, t); w.appendChild(t);
+      }
+    });
+  };
+  var show = function(html){
+    if(out){ out.innerHTML = html; out.scrollIntoView({behavior:'smooth', block:'start'}); }
+    else addRaw(html);
+    wrapTables();
+  };
+  show('<div class="loading"><span class="spinner"></span>Running the challenge against the real engine…</div>');
   fetch('/sim/api/challenge', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({scenario: scenario})
-  }).then(r=>r.json()).then(d=>{ show(d.html); });
+  }).then(r=>r.json()).then(d=>{ show(d.html); })
+   .catch(function(){ show('<div class="loading">The challenge request failed. Check the server and try again.</div>'); })
+   .finally(function(){ if(btn){ btn.disabled = false; } });
 }
-addBot(md("Hi — I'm a **simulated** front-end for the Agent Continuity Layer. **Run the booking scenario above**: the provider commits, the ack is lost, and you'll see whether the retry books twice — naive vs idempotency-only vs the full layer, from real runs. Or type the booking request yourself: **\\"Arrange an airport pickup for 6:30 tomorrow, add it to my calendar, and send my partner the details.\\"**"));
+function resetDemo(){
+  var out = document.getElementById('scenario-out');
+  if(out){ out.innerHTML = ''; }
+  chat.innerHTML = '';
+  sessionId = null;
+  greet();
+  window.scrollTo({top: 0, behavior: 'smooth'});
+}
+function greet(){
+  addBot(md("Hi — I'm a **simulated** front-end for the Agent Continuity Layer. **Run the booking scenario above**: the provider commits, the ack is lost, and you'll see whether the retry books twice — naive vs idempotency-only vs the full layer, from real runs. Or type the booking request yourself: **\\"Arrange an airport pickup for 6:30 tomorrow, add it to my calendar, and send my partner the details.\\"**"));
+}
+greet();
 </script></body></html>
 """
 
@@ -597,9 +698,14 @@ def _render_receipt(receipt: dict) -> str:
         for k, v in (("checkpoint", receipt["checkpoint"]),
                      ("fencing", receipt["fencing"]),
                      ("final state", receipt["final_state"])))
+    needs_review = bool((receipt.get("final_state") or {}).get("human_review_flags"))
+    halt_cls = " halt" if needs_review else ""
+    halt_badge = ('<span class="verdict warn">halted — human review required; '
+                  'dependent steps did not run</span>' if needs_review else "")
     return (
-        '<div class="receipt"><h4>Recovery receipt '
+        f'<div class="receipt{halt_cls}"><h4>Recovery receipt '
         f'— incident {_sim_escape(receipt["incident_id"])}</h4>'
+        f'{halt_badge}'
         '<div class="tick" style="margin-bottom:8px">Proof of recovery, from '
         'the journal + forensic ledger — not a success message. '
         f'<a style="color:#58a6ff" href="/sim/api/receipt/{_sim_escape(receipt["incident_id"])}" '
@@ -707,6 +813,20 @@ def _render_sim_message(msg: dict) -> str:
     if kind == "challenge":
         c = msg["comparison"]
         three_way = c.get("three_way", False)
+        scenario = msg.get("scenario", "")
+        if scenario == "lost_ack":
+            verdict = ('<span class="verdict ok">1 booking · retry reused the receipt · '
+                       'no duplicates</span> '
+                       '<span class="verdict warn">provider-state-loss variant: '
+                       'halted · human review required</span>')
+        elif scenario == "unsafe":
+            verdict = ('<span class="verdict ok">unsafe action blocked — '
+                       'no effect executed</span>')
+        elif scenario == "stale_write":
+            verdict = ('<span class="verdict ok">stale write rejected at the '
+                       'store boundary</span>')
+        else:
+            verdict = ""
         if three_way:
             rows = "".join(
                 f'<tr><td class="kv"><b>{_sim_escape(r["aspect"])}</b></td>'
@@ -747,6 +867,7 @@ def _render_sim_message(msg: dict) -> str:
         return (
             '<div class="reportbox"><h3>'
             f'{_sim_escape(msg.get("title", "Break-it challenge"))}</h3>'
+            f'{verdict}'
             f'<div class="tick" style="margin-bottom:8px">incident {c["incident_id"]} · '
             f'failure {c["failure"]} (deterministic, preconfigured scripted fault) · '
             f'{sub}</div>'
