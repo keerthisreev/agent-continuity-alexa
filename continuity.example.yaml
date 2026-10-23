@@ -1,7 +1,7 @@
 # Agent Continuity Layer configuration (optional).
 # Copy to continuity.yaml and edit. All values below are the defaults --
 # with no continuity.yaml present the layer behaves exactly like the
-# brutal proof. Environment overrides are for secrets ONLY (NEBIUS_API_KEY).
+# brutal proof. Environment overrides are for secrets ONLY (MODEL_API_KEY).
 
 hysteresis:
   anomaly_threshold: 2       # anomalies before quarantine (canary fail => immediate)
