@@ -40,7 +40,9 @@ from test_continuity import make_world
 from continuity.diagnostician import StubDiagnostician
 
 from . import FAILURE_MODES, ROLES
-from .lost_ack import (compare_lost_ack, run_baseline_lost_ack,
+from .lost_ack import (build_booking_timeline, compare_lost_ack,
+                       compare_lost_ack_three_way,
+                       run_baseline_lost_ack, run_idempotency_only_lost_ack,
                        run_protected_lost_ack)
 from .receipt import receipt_from_blocked_action, receipt_from_lost_ack
 from .scorecard import build_scorecard, render_text
@@ -412,11 +414,21 @@ def run_challenge(scenario: str,
         raise ValueError(f"unknown challenge: {scenario}")
     incident_id = (incident_id
                    or f"CHAL-{scenario}-{_uuid.uuid4().hex[:6]}".upper())
+    timeline: list = []
     if scenario == "lost_ack":
         baseline = run_baseline("lost_ack", incident_id)
         protected = run_protected("lost_ack", incident_id)
-        comparison = compare(baseline, protected)
+        # The fair middle baseline + the provider-amnesia variants, all
+        # executed (not asserted) so every comparison cell is measured.
+        idem = run_idempotency_only_lost_ack(incident_id)
+        idem_amnesia = run_idempotency_only_lost_ack(
+            incident_id + "-AMN", provider_amnesia=True)
+        protected_amnesia = run_protected_lost_ack(
+            incident_id + "-AMN", provider_amnesia=True)
+        comparison = compare_lost_ack_three_way(
+            baseline, idem, protected, idem_amnesia, protected_amnesia)
         receipt = receipt_from_lost_ack(protected)
+        timeline = build_booking_timeline(protected)
     elif scenario == "unsafe":
         baseline = run_baseline("gray", incident_id)
         protected = run_protected("gray", incident_id)
@@ -442,6 +454,7 @@ def run_challenge(scenario: str,
         "title": CHALLENGE_TITLES[scenario],
         "comparison": comparison,
         "receipt": receipt,
+        "timeline": timeline,
     }
 
 
