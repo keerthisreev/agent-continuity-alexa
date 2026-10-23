@@ -5,7 +5,7 @@ built-in defaults. The defaults reproduce the brutal-proof behavior
 exactly, so existing behavior is unchanged unless the operator overrides
 it.
 
-Environment overrides are for SECRETS ONLY (NEBIUS_API_KEY). Everything
+Environment overrides are for SECRETS ONLY (MODEL_API_KEY). Everything
 else -- thresholds, model, endpoint -- comes from the YAML file or the
 defaults below, so a config file is always a complete, auditable record
 of how the layer is running.
@@ -33,7 +33,7 @@ DEFAULTS = {
     },
     "nemotron": {
         "model": "nvidia/Nemotron-3.5-Super-VL",
-        "base_url": "https://api.tokenfactory.nebius.com/v1",
+        "base_url": "https://api.modelprovider.example.com/v1",
         "timeout_s": 20,
         "retries": 2,                # retries after the first attempt
         "circuit_breaker_failures": 3,

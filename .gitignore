@@ -6,3 +6,5 @@ data/
 # Never commit real credentials: .env.example documents the shape,
 # the real .env (with the API key) stays local.
 .env
+
+.venv/

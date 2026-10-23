@@ -48,7 +48,7 @@ ROLES = ("triage", "diagnosis", "remediation", "escalation")
 
 def make_world(diagnostician=None, live=False):
     # Tests are ALWAYS offline: live defaults to False here regardless of
-    # environment, so a stray NEBIUS_API_KEY can never turn the suite into
+    # environment, so a stray MODEL_API_KEY can never turn the suite into
     # live inference calls.
     layer = ContinuityLayer(diagnostician=diagnostician, live=live)
     store = IncidentStore(layer.fencing, layer.ledger)
@@ -497,7 +497,7 @@ def test_diagnostician_disabled_and_stub_agree():
 
 
 def test_nemotron_seam_offline_safe():
-    saved = os.environ.pop("NEBIUS_API_KEY", None)
+    saved = os.environ.pop("MODEL_API_KEY", None)
     try:
         d = NemotronDiagnostician(api_key="")
         assert not d.available
@@ -510,7 +510,7 @@ def test_nemotron_seam_offline_safe():
         assert d2.available and d2.model.startswith("nvidia/Nemotron")
     finally:
         if saved is not None:
-            os.environ["NEBIUS_API_KEY"] = saved
+            os.environ["MODEL_API_KEY"] = saved
     print("PASS nemotron seam: stub offline, live client ready for her key")
 
 

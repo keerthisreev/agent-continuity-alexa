@@ -225,7 +225,7 @@ def default_canary_generator(config: dict = None,
                             live: bool | None = None) -> CanaryGenerator:
     """Static probes unless live mode is EXPLICITLY enabled and the key is set.
 
-    Credit-safety rule: the mere presence of NEBIUS_API_KEY never enables
+    Credit-safety rule: the mere presence of MODEL_API_KEY never enables
     network calls. Pass live=True or set CONTINUITY_LIVE=1 for the Nemotron
     path (used by demo.py --live and the controlled live test only).
     """

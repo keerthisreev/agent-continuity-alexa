@@ -48,9 +48,9 @@ my partner the details." The ride provider commits the booking — then the ack
 is lost. The baseline agent retries blindly and books twice. The protected run
 reconciles the journal, reuses the receipt, and finishes the remaining steps:
 **one booking, calendar updated, partner notified, with a recovery receipt
-proving it.** Run the booking scenario on `/sim` — the recovery timeline,
-the three-way comparison (naive retry vs idempotency-only vs the full layer),
-and the receipt all render from the run's own records — then explore the other
+proving it.** Run the booking scenario on `/sim` — the recovery timeline, the
+three-way comparison (naive retry vs idempotency-only vs the full layer), and
+the receipt all render from the run's own records — then explore the other
 failure modes (unsafe action, stale write after failover), plus a per-scenario
 reliability scorecard (TSFD/TRV/AFR in logical ticks, duplicates prevented,
 the rerun command).
@@ -78,7 +78,7 @@ mechanism — commit, persist, reconcile, prove — not generalized AI-failure
 detection.
 
 **Pre-existing work disclosure.** The continuity engine predates this hackathon
-(private repo, built for the Nebius × NVIDIA hackathon). Everything demoed as
+(private repo, built for a prior AI-infrastructure project). Everything demoed as
 new was built during the submission window, Oct 22–23, 2026: (1) the
 conversational sim control surface, now with the advertised booking request
 wired to the working recovery flow (type the airport-pickup sentence — the
@@ -126,7 +126,7 @@ web app per the permitted path. Concrete suggestion: publish the simulator or
 mark the track "simulation path" explicitly.
 
 **The private-repo collaborator flow.** What for: plan to share the private repo with
-testing@devpost.com plus the six Amazon reviewers at submit time (not yet done —
+testing@devpost.com plus the five Amazon reviewers at submit time (not yet done —
 invitations expire in 7 days, so they must go out at submission, not earlier).
 What worked so far: the GitHub App installation flow scoped access to just this repo
 during the build. What needs work: surfacing the 7-day expiry as a gotcha on the
@@ -145,10 +145,9 @@ Attach `docs/friction-log-draft.md` from the repo.
 - [x] Merge the gateway-fencing PR (PR #4 squash-merged)
 - [x] Merge the honest-restart + /sim first-screen PR (PR #5 squash-merged)
 - [x] Merge the booking-flow + provider-fencing PR (PR #6 squash-merged)
-- [ ] Repo: private is fine IF shared with testing@devpost.com AND the six
-      Amazon GitHub users — chris-trag, knmeiss, giolaq, anishamalde,
-      mosesroth, emersonsklar — at submit time (invites expire in 7 days;
-      do not send earlier)
+- [ ] Repo: private is fine IF shared with testing@devpost.com AND the five
+      Amazon GitHub users — knmeiss, giolaq, anishamalde, mosesroth, emersonsklar
+      — at submit time (invites expire in 7 days; do not send earlier)
 - [ ] Demo video: under 3 minutes, public YouTube or Vimeo, English, no
       background music, no third-party trademarks
 - [ ] Paste this Devpost text (track + mini-challenge selected on the form)

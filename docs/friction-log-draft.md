@@ -38,7 +38,7 @@ the workaround. All entries below are real events from the Oct 22–23 build.
 
 - **Expected:** Clean merge of `feature/mcp-and-showcase` into `main`.
 - **Actual:** 6 conflicts, all between the newer credit-safety hardening and older code
-  paths (live opt-in threading; the Nemotron zero-HTTP tripwire vs a socket-level
+  paths (live opt-in threading; the model zero-HTTP tripwire vs a socket-level
   duplicate guard).
 - **Workaround:** Resolved by letting the newer credit-safety code win everywhere;
   the tripwire supersedes the socket-level duplicate. Re-ran the full suite:

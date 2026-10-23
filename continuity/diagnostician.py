@@ -11,8 +11,8 @@ Two Nemotron jobs (both advisory, both visible in the demo):
      reviewer, written from the failure window + affected-work map
 
 When live mode is EXPLICITLY enabled (live=True or CONTINUITY_LIVE=1)
-and the NEBIUS_API_KEY environment variable is set, both go through the
-Nebius Token Factory OpenAI-compatible chat-completions endpoint. Otherwise
+and the MODEL_API_KEY environment variable is set, both go through the
+the model API OpenAI-compatible chat-completions endpoint. Otherwise
 — all tests, all default demos, the dashboard — the deterministic stub
 answers. Key presence alone never enables network calls: a credit must not
 be spent by accident. No network call is ever made without explicit live
@@ -69,9 +69,9 @@ def _stub_narrative(report: dict) -> str:
 
 
 class NemotronDiagnostician:
-    """Reasoning assistant via Nebius Token Factory (OpenAI-compatible).
+    """Reasoning assistant via the model API (OpenAI-compatible).
 
-    Secrets come from the environment ONLY (NEBIUS_API_KEY). Everything
+    Secrets come from the environment ONLY (MODEL_API_KEY). Everything
     else comes from continuity.yaml / constructor args.
     """
 
@@ -186,7 +186,7 @@ class NemotronDiagnostician:
 
 def default_diagnostician(config: dict = None,
                           live: bool | None = None) -> Diagnostician:
-    """Nemotron via Nebius only with explicit live opt-in AND the key set.
+    """Model via provider only with explicit live opt-in AND the key set.
 
     Otherwise the deterministic stub. See live_enabled() for the rule:
     key presence alone never spends credit.
