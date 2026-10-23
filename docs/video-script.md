@@ -1,86 +1,83 @@
-# Demo video choreography — 3 minutes (DRAFT)
+# Demo video script — Alexa+ track (DEFINITIVE, ~2:40)
 
-> Record `python3 demo.py` terminal output; overlay narration. Total: under 3:00.
+Prepared 2026-10-22 evening. Replaces the old terminal-first gray-failure
+choreography. This is the script to record: it centers the lost-acknowledgement
+scenario, records the actual /sim experience, and ends on the recovery receipt.
+Narration is hers to adapt — keep her voice.
 
-## 0:00–0:20 — Origin story (face to camera or voiceover)
+Rules: under 3:00, public YouTube/Vimeo, English, no background music, no
+third-party trademarks. Honesty rules stand: label every fault simulated, name
+the enforced invariants on screen, times in ticks never seconds, never claim
+generalized AI-failure detection.
 
-"I built an AI pipeline that processed thousands of records. One day the LLM
-stopped responding. The container stayed alive. The pipeline kept running.
-I didn't know which records were affected, when the model recovered, or when
-the outputs became trustworthy again. That is not a crash. That's an agent
-failure nobody can see."
+The signature moment (say it verbatim at the hook):
+> "The booking succeeded. The agent didn't know it."
 
-## 0:20–0:45 — The setup
+## 0:00–0:20 — Hook (20s)
 
-4-agent incident workflow: triage → diagnosis → remediation → escalation.
-The continuity layer sits underneath — the agents don't know it exists.
-"Every monitoring dashboard says healthy."
+- On screen: the /sim page hero — "The booking succeeded. The agent didn't know it."
+- Narration: "The booking succeeded. The agent didn't know it. When an AI
+  assistant loses the acknowledgement for an action it already performed, the
+  safe-looking retry is the dangerous one — it books twice. This is the
+  recovery problem nobody demos, because recovery is where the duplicate happens."
 
-Run: `python3 demo.py --failure silent`
+## 0:20–0:45 — The setup (25s)
 
-## 0:45–1:30 — The gray failure (the core beat)
+- On screen: /sim chat. The task, in plain language: book an airport ride,
+  update the calendar, notify the partner. A normal multi-step assistant task.
+- Narration: "The task starts the way a user would start it — in conversation.
+  Three steps, one real side effect: the ride booking."
 
-Kill the remediation agent's LLM connection. Keep the container alive.
+## 0:45–1:30 — The fault: baseline books twice, the layer books once (45s)
 
-Show the terminal:
-- process alive, heartbeat alive — but role anomaly detected
-- suspicion canary FAILED
-- agent fenced (epoch revoked), standby activated from last-known-good checkpoint
-- workflow continues
+- On screen: click **"▶ Break it: lose the acknowledgement."**
+- Show the BASELINE first: the ack is lost, the agent retries blindly —
+  **two bookings**. Freeze on it. Let the duplicate sit on screen.
+- Then the protected run: the ack is lost, the gateway reconciles the
+  operation journal, reuses the committed receipt, completes the calendar
+  and notification steps. **One booking.**
+- Narration (short — let the before/after do the work): "Same fault. Without
+  the layer: booked twice. With it: the journal remembers what actually
+  happened, so the retry reuses the receipt instead of repeating the action."
 
-Narration: "The container is alive. The heartbeat is alive. The role is dead.
-The undercover agent caught what monitoring never could."
+## 1:30–1:55 — The other two challenges (25s)
 
-## 1:30–2:00 — The evidence screen
+- Quick pass, no deep dive: **B — unsafe action**: the compromised agent
+  proposes restarting the database; the layer blocks it. **C — stale write**:
+  the fenced agent retries with a revoked generation; rejected before the
+  provider is touched.
+- Narration: "Same idea in two more shapes: an unsafe action that never
+  executes, and a stale agent stopped before it can cause a side effect."
 
-Freeze on the affected-work output:
-- failure window timestamps, TSFD
-- affected-work map: completed clean / replayed by standby / human review
-- duplicate writes prevented
+## 1:55–2:25 — Proof, not a success message (30s)
 
-"This is what the judges should remember — not a backup agent, but the
-forensics: exactly what broke, exactly what was affected, exactly what was
-saved."
+- On screen: the recovery receipt. Walk it once: one booking listed, the
+  retry decision ("reused"), what was verified, the remaining steps completed.
+  If the provider's state can't be confirmed, the receipt says
+  "needs human review" — it never manufactures a success.
+- Narration: "Not a success message — evidence. What was booked, what the
+  retry decided, what was actually verified. And when the outcome can't be
+  confirmed, it says so instead of pretending."
 
-## 2:00–2:30 — Recovery and rejoin
+## 2:25–2:40 — Close (15s)
 
-Primary reconnects → transport probe → semantic recovery probe →
-write authority DENIED until revalidated → rejoined at new epoch.
-"Recovery complete."
+- Narration: "The Agent Continuity Layer — the AI that doesn't do it twice.
+  Trust the work, not the process."
+- End card: repo link, her name.
 
-## 2:30–3:00 — The layer + Nebius/NVIDIA
+## Filming checklist
 
-- Same workflow, same agents, same tools — plus the continuity layer.
-- With `NEBIUS_API_KEY` set, Nemotron does two visible jobs via Nebius Token
-  Factory: it *writes the canary probes* (show the `[nemotron] generated 3
-  canary probes for role=remediation` timeline lines — the model invents the
-  scenarios, the deterministic oracle judges them) and it *writes the
-  forensic narrative* (show the FORENSIC NARRATIVE block in the evidence screen).
-- Narration: "The verdicts are deterministic — the model can't inherit the
-  failures it's meant to catch. But Nemotron writes the probes that hunt the
-  failure, and the incident report the human reads. That's the model where it
-  adds value, and nowhere it could do harm."
-- Close: "Kubernetes keeps services alive. We keep agent workflows alive."
+- [ ] Under 3:00 (this script targets ~2:40), public YouTube/Vimeo, English
+- [ ] Every fault labeled simulated on screen; invariants named; ticks not seconds
+- [ ] Simulation source is in the repo and visibly shown working
+- [ ] Product feedback written for every tool/API/SDK used (see the Devpost draft)
+- [ ] Friction log attached (docs/friction-log-draft.md)
+- [ ] Submit by Fri Oct 23, 12:00pm PT / 2:00pm CT; share the private repo with
+      testing@devpost.com + knmeiss, giolaq, anishamalde, mosesroth, emersonsklar
+      at submit time
 
-## Recording notes
-- Terminal font large; scroll slow enough to read.
-- The `--failure gray` mode shows the invariant-violation + human-review path.
-- Keep narration under the terminal; let the timeline tell the story.
+## Superseded
 
-## Plan B — if the key check fails (film this instead)
-
-If the live Nemotron call doesn't go through before filming, do NOT fake
-the 2:30–3:00 beat. Film this replacement (~30s):
-
-- Run the demo without `NEBIUS_API_KEY`. The timeline will read
-  `[static] 1 deterministic canary probe for role=remediation (no key set)`
-  and the narrative block will read `stub-narrative (deterministic, …)`.
-- Narration: "The AI seam is a plug-in, not a dependency. The layer catches
-  the failure with zero model calls — Nemotron lights up the probes and the
-  forensic narrative once the key lands."
-- Before submitting, soften the Devpost "Built with" claim to match what
-  actually ran: keep Nebius/NVIDIA as designed integration, but remove any
-  line implying a live call happened. The eligibility gate checks for real
-  tool usage, not aspirational claims — an honest stub beats a failed
-  eligibility check. (Filming Plan B is also the cleanest backup for the
-  Sep-12-style verification the judges may run.)
+- docs/video-script-alexa-draft.md and docs/video-script-alexa-trimmed.md were
+  earlier drafts of this script (gray-failure-centered). This file is the one
+  to record.

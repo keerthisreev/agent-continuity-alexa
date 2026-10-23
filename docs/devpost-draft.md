@@ -1,5 +1,10 @@
 # Devpost description (DRAFT)
 
+> NOTE (2026-10-22): this file is the **Nebius × NVIDIA hackathon** submission
+> draft (deadline Oct 30). The **Amazon Alexa+ track** submission text lives in
+> `docs/devpost-alexa-draft.md` — that is the source of truth for the Alexa+
+> entry. Do not mix the two tracks' claims.
+
 ## Agent Continuity Layer — reliability infrastructure for AI agent workflows
 
 **The track claim.** This is a workflow that runs itself — and keeps running

@@ -20,6 +20,8 @@ _DECISION_TO_RETRY = {
     "reuse_committed_receipt": "reused",
     "reconciled_ambiguous_commit__receipt_reused": "reused",
     "no_recorded_effect__verify_provider_before_retry": "needs-review",
+    "receipt_from_journal__provider_unverifiable__needs_review":
+        "needs-review",
 }
 
 
@@ -141,8 +143,15 @@ def receipt_from_lost_ack(result: Dict[str, Any]) -> Dict[str, Any]:
             if rec and rec["status"] in ("committed", "reconciled")
             else NOT_RECORDED)
         if s.get("reused"):
-            recovery_result = ("ack lost after commit; journal reconciled; "
-                               "existing receipt reused -- no duplicate effect")
+            if s.get("needs_review"):
+                recovery_result = ("ack lost after commit; the journal holds "
+                                   "a receipt but the provider cannot confirm "
+                                   "it -- needs human review; nothing was "
+                                   "blindly re-booked")
+            else:
+                recovery_result = ("ack lost after commit; journal reconciled; "
+                                   "existing receipt reused -- no duplicate "
+                                   "effect")
         else:
             recovery_result = "completed on first attempt"
         operations.append({
