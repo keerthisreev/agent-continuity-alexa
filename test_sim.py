@@ -53,9 +53,9 @@ def test_nlu_control_intents():
 
 
 def test_session_stays_offline_with_key_set():
-    old = os.environ.get("NEBIUS_API_KEY")
+    old = os.environ.get("MODEL_API_KEY")
     old_live = os.environ.get("CONTINUITY_LIVE")
-    os.environ["NEBIUS_API_KEY"] = "test-only-fake-key"
+    os.environ["MODEL_API_KEY"] = "test-only-fake-key"
     os.environ.pop("CONTINUITY_LIVE", None)
     try:
         s = SimSession()
@@ -65,9 +65,9 @@ def test_session_stays_offline_with_key_set():
         assert s.layer.live is False
     finally:
         if old is None:
-            os.environ.pop("NEBIUS_API_KEY", None)
+            os.environ.pop("MODEL_API_KEY", None)
         else:
-            os.environ["NEBIUS_API_KEY"] = old
+            os.environ["MODEL_API_KEY"] = old
         if old_live is not None:
             os.environ["CONTINUITY_LIVE"] = old_live
     print("PASS offline: key in env cannot flip the sim online")

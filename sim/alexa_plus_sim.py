@@ -202,7 +202,7 @@ class SimSession:
     """A conversational session driving the real continuity engine.
 
     The world (layer, store, agents) is built once per session, always
-    offline: StubDiagnostician + live=False, so a stray NEBIUS_API_KEY can
+    offline: StubDiagnostician + live=False, so a stray MODEL_API_KEY can
     never flip the sim into network calls.
     """
 

@@ -7,8 +7,8 @@ story with zero narration.
 
     python3 demo.py [--failure hard|silent|gray|all] [--diagnostician auto|none|stub]
 
-No network calls are made unless NEBIUS_API_KEY is set (live Nemotron via
-Nebius Token Factory for the demo video); otherwise the stub explains.
+No network calls are made unless MODEL_API_KEY is set (live Nemotron via
+the model API for the demo video); otherwise the stub explains.
 """
 from __future__ import annotations
 import argparse
@@ -37,11 +37,11 @@ def pick_diagnostician(choice: str, live: bool):
         return StubDiagnostician(), "stub (deterministic)"
     d = default_diagnostician(live=live)
     if isinstance(d, NemotronDiagnostician):
-        return d, (f"Nemotron via Nebius Token Factory [{d.model}] -- "
+        return d, (f"Nemotron via the model API [{d.model}] -- "
                    f"visible NVIDIA usage for the video")
     if live:
-        return d, "stub -- live requested but NEBIUS_API_KEY not set"
-    return d, "stub -- add --live with NEBIUS_API_KEY for live Nemotron via Nebius Token Factory"
+        return d, "stub -- live requested but MODEL_API_KEY not set"
+    return d, "stub -- add --live with MODEL_API_KEY for live Nemotron via the model API"
 
 
 def run_scenario(failure: str, diagnostician, live: bool):
@@ -111,7 +111,7 @@ def render_timeline(layer) -> list:
             else:
                 lines.append(f"{_t(t)}  [static] {d['count']} deterministic canary "
                              f"probe for role={d['role']} (offline: --live + "
-                             f"NEBIUS_API_KEY for Nemotron probes)")
+                             f"MODEL_API_KEY for Nemotron probes)")
         elif k == "anomaly":
             lines.append(f"{_t(t)}  ROLE ANOMALY -- {d['violations'][0]}")
         elif k == "critical_violation":
@@ -198,8 +198,8 @@ def main() -> int:
     ap.add_argument("--diagnostician", choices=("auto", "none", "stub"),
                     default="auto")
     ap.add_argument("--live", action="store_true",
-                    help="explicit opt-in for live Nebius calls (requires "
-                         "NEBIUS_API_KEY); CONTINUITY_LIVE=1 works too. "
+                    help="explicit opt-in for live model calls (requires "
+                         "MODEL_API_KEY); CONTINUITY_LIVE=1 works too. "
                          "Without either, everything runs offline "
                          "on deterministic static probes and the stub")
     args = ap.parse_args()
@@ -210,7 +210,7 @@ def main() -> int:
     failures = FAILURES if args.failure == "all" else (args.failure,)
 
     print("AGENT CONTINUITY LAYER -- brutal proof")
-    print(f"mode: {'LIVE (Nebius Token Factory)' if live else 'OFFLINE (deterministic, zero network calls)'}")
+    print(f"mode: {'LIVE (the model API)' if live else 'OFFLINE (deterministic, zero network calls)'}")
     print(f"diagnostician: {diag_label}")
     print("sentinel: deterministic (authoritative with diagnostician disabled)")
     print()
