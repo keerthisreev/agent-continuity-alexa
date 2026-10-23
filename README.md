@@ -321,7 +321,6 @@ docs/devpost-alexa-draft.md   Devpost description draft
 
 ## Submission docs
 
-- [3-minute video choreography](docs/video-script.md)
 - [Devpost description draft](docs/devpost-alexa-draft.md)
 - [Measured results table](docs/results-table.md)
 - [Test evidence (91/91)](docs/test-evidence.md)
