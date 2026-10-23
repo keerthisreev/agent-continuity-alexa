@@ -290,6 +290,63 @@ def test_unverified_booking_halts_dependent_steps():
     print("PASS halt: unverified booking stops the workflow, needs-review")
 
 
+def test_idempotency_only_matches_layer_on_healthy_lost_ack():
+    """Honest headline, part 1: when the provider honors its key, the
+    idempotency-only baseline prevents the duplicate just like the full
+    layer. The layer must not pretend otherwise."""
+    from sim.lost_ack import run_idempotency_only_lost_ack
+    idem = run_idempotency_only_lost_ack(incident_id="IDEM-OK")
+    protected = run_protected_lost_ack(incident_id="PROT-OK")
+    assert idem["ride_bookings"] == 1, idem
+    assert idem["duplicate_effects"] == 0, idem
+    assert protected["ride_bookings"] == 1, protected
+    assert protected["ride_bookings"] - 1 == 0, protected
+    print("PASS idem: healthy provider -> no duplicate, matches the layer")
+
+
+def test_idempotency_only_duplicates_when_provider_loses_state():
+    """Honest headline, part 2: the dedupe table is the provider's memory.
+    Lose it and the retry duplicates; the agent-side journal survives, so
+    the full layer halts instead of duplicating."""
+    from sim.lost_ack import run_idempotency_only_lost_ack
+    idem = run_idempotency_only_lost_ack(incident_id="IDEM-AMN",
+                                         provider_amnesia=True)
+    protected = run_protected_lost_ack(incident_id="PROT-AMN",
+                                       provider_amnesia=True)
+    assert idem["ride_bookings"] == 2, idem
+    assert idem["duplicate_effects"] == 1, idem
+    assert protected["halted"] is True, protected
+    assert protected["ride_bookings"] == 0, protected
+    print("PASS idem: amnesia -> duplicate; layer -> halt, needs-review")
+
+
+def test_three_way_comparison_every_cell_measured():
+    """The comparison table is built from executed runs, not assertions."""
+    from sim.lost_ack import (compare_lost_ack_three_way,
+                              run_baseline_lost_ack,
+                              run_idempotency_only_lost_ack)
+    baseline = run_baseline_lost_ack("T3-B")
+    idem = run_idempotency_only_lost_ack("T3-I")
+    protected = run_protected_lost_ack("T3-P")
+    idem_amnesia = run_idempotency_only_lost_ack("T3-IA",
+                                                 provider_amnesia=True)
+    protected_amnesia = run_protected_lost_ack("T3-PA",
+                                               provider_amnesia=True)
+    cmp = compare_lost_ack_three_way(baseline, idem, protected,
+                                     idem_amnesia, protected_amnesia)
+    assert cmp["three_way"] is True
+    assert len(cmp["rows"]) == 5, cmp["rows"]
+    for row in cmp["rows"]:
+        assert {"aspect", "baseline", "idempotency_only",
+                "protected"} <= set(row), row
+    # The amnesia row quotes the measured numbers.
+    amnesia_row = [r for r in cmp["rows"]
+                   if "loses its state" in r["aspect"]][0]
+    assert "2 bookings" in amnesia_row["idempotency_only"]
+    assert "halted=True" in amnesia_row["protected"]
+    print("PASS three-way: 5 aspects, every cell from real runs")
+
+
 def test_intent_commit_lifecycle():
     j = _tmp_journal()
     try:
@@ -523,6 +580,9 @@ TESTS = [
     test_full_restart_with_provider_state_lost_needs_review,
     test_provider_rejects_stale_fencing_token,
     test_unverified_booking_halts_dependent_steps,
+    test_idempotency_only_matches_layer_on_healthy_lost_ack,
+    test_idempotency_only_duplicates_when_provider_loses_state,
+    test_three_way_comparison_every_cell_measured,
     test_intent_commit_lifecycle,
     test_retry_same_key_same_payload_reuses_receipt,
     test_same_key_different_payload_is_conflict,

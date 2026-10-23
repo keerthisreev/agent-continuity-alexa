@@ -1,7 +1,7 @@
 # Test evidence — Alexa+ submission
 
-- Date: 2026-10-22 (night, America/Chicago)
-- Branch: feature/fallback-halt (PR to follow; merges to main)
+- Date: 2026-10-23 (early morning, America/Chicago)
+- Branch: feature/final-judge-readiness (PR #8; regenerating from main after merge)
 - Command: `for t in test_continuity test_robust test_nemotron test_mcp test_showcase test_sim test_journal; do python3 $t.py; done`
 - Environment: clean venv, Python 3.12.3, with flask, mcp>=2.0, pyyaml, requests installed — **zero skipped tests**
 - Also offline: NEBIUS_API_KEY unset, CONTINUITY_LIVE unset; no network; deterministic (no randomness)
@@ -26,12 +26,12 @@ PASS nemotron seam: stub offline, live client ready for her key
 13/13 tests passed
 
 === test_robust ===
-127.0.0.1 - - [22/Oct/2026 20:53:42] "GET / HTTP/1.1" 200 -
-127.0.0.1 - - [22/Oct/2026 20:53:42] "GET /api/health HTTP/1.1" 200 -
-127.0.0.1 - - [22/Oct/2026 20:53:42] "GET /api/timeline?limit=10 HTTP/1.1" 200 -
-127.0.0.1 - - [22/Oct/2026 20:53:42] "GET /api/affected HTTP/1.1" 200 -
-127.0.0.1 - - [22/Oct/2026 20:53:42] "GET /api/money HTTP/1.1" 200 -
-127.0.0.1 - - [22/Oct/2026 20:53:42] "GET /api/report HTTP/1.1" 200 -
+127.0.0.1 - - [23/Oct/2026 00:27:33] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [23/Oct/2026 00:27:33] "GET /api/health HTTP/1.1" 200 -
+127.0.0.1 - - [23/Oct/2026 00:27:33] "GET /api/timeline?limit=10 HTTP/1.1" 200 -
+127.0.0.1 - - [23/Oct/2026 00:27:33] "GET /api/affected HTTP/1.1" 200 -
+127.0.0.1 - - [23/Oct/2026 00:27:33] "GET /api/money HTTP/1.1" 200 -
+127.0.0.1 - - [23/Oct/2026 00:27:33] "GET /api/report HTTP/1.1" 200 -
 PASS config: defaults reproduce behavior; YAML overrides merge
 PASS threaded smoke: 4x25 invocations, no lost updates, no duplicate effects
 PASS checkpoint versioning: unknown schema rejected, failover continues fresh
@@ -117,6 +117,9 @@ PASS gateway: stale generation rejected before provider dispatch
 PASS restart: provider state lost -> needs-review, no blind re-book
 PASS provider: stale/missing fencing token rejected, no effect
 PASS halt: unverified booking stops the workflow, needs-review
+PASS idem: healthy provider -> no duplicate, matches the layer
+PASS idem: amnesia -> duplicate; layer -> halt, needs-review
+PASS three-way: 5 aspects, every cell from real runs
 PASS journal: intent -> commit lifecycle
 PASS journal: same key+payload retry reuses receipt, single effect
 PASS journal: same key + different payload -> conflict, never silent
@@ -128,6 +131,6 @@ PASS receipt: every field read off journal/ledger/store
 PASS offline: key in env cannot flip the journal scenario online
 PASS honesty: no banned language in new/changed files
 
-18/18 journal tests passed
+21/21 journal tests passed
 
 ```

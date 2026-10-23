@@ -48,11 +48,18 @@ my partner the details." The ride provider commits the booking — then the ack
 is lost. The baseline agent retries blindly and books twice. The protected run
 reconciles the journal, reuses the receipt, and finishes the remaining steps:
 **one booking, calendar updated, partner notified, with a recovery receipt
-proving it.** Hit the three **break-it buttons** on `/sim` — lose the
-acknowledgement, propose an unsafe action, attempt a stale write after
-failover — and watch baseline-vs-layer side by side, every cell from the runs'
-own records, plus a per-scenario reliability scorecard (TSFD/TRV/AFR in
-logical ticks, duplicates prevented, the rerun command).
+proving it.** Run the booking scenario on `/sim` — the recovery timeline,
+the three-way comparison (naive retry vs idempotency-only vs the full layer),
+and the receipt all render from the run's own records — then explore the other
+failure modes (unsafe action, stale write after failover), plus a per-scenario
+reliability scorecard (TSFD/TRV/AFR in logical ticks, duplicates prevented,
+the rerun command).
+
+**Evidence:** the full results table — naive retry vs idempotency-only vs the
+full layer across lost acknowledgement, provider state loss, stale writes,
+unsafe actions, and the healthy run — is measured from real runs in
+`docs/results-table.md` (regenerate: `python3 scripts/gen_results_table.py`;
+machine-readable receipts at `GET /sim/api/receipt/<incident_id>`).
 
 **Underneath:** the continuity engine that earned this submission its
 foundation — independent health contracts per role, gray-failure detection
@@ -88,7 +95,7 @@ authorization at the gateway; the provider itself validates the fencing token
 on every call (defense in depth against the check-then-act race); plus the
 honest restart proof — if the provider's state can't be re-verified after a
 restart, the receipt says "needs human review" instead of manufacturing a
-success. **88/88 tests green, zero skipped** (full output in
+success. **91/91 tests green, zero skipped** (full output in
 `docs/test-evidence.md`). The demo path is fully deterministic
 and offline — no API key needed to reproduce it.
 
@@ -119,7 +126,7 @@ web app per the permitted path. Concrete suggestion: publish the simulator or
 mark the track "simulation path" explicitly.
 
 **The private-repo collaborator flow.** What for: plan to share the private repo with
-testing@devpost.com plus the five Amazon reviewers at submit time (not yet done —
+testing@devpost.com plus the six Amazon reviewers at submit time (not yet done —
 invitations expire in 7 days, so they must go out at submission, not earlier).
 What worked so far: the GitHub App installation flow scoped access to just this repo
 during the build. What needs work: surfacing the 7-day expiry as a gotcha on the
@@ -138,9 +145,10 @@ Attach `docs/friction-log-draft.md` from the repo.
 - [x] Merge the gateway-fencing PR (PR #4 squash-merged)
 - [x] Merge the honest-restart + /sim first-screen PR (PR #5 squash-merged)
 - [x] Merge the booking-flow + provider-fencing PR (PR #6 squash-merged)
-- [ ] Repo: private is fine IF shared with testing@devpost.com AND the five
-      Amazon GitHub users — knmeiss, giolaq, anishamalde, mosesroth, emersonsklar
-      — at submit time (invites expire in 7 days; do not send earlier)
+- [ ] Repo: private is fine IF shared with testing@devpost.com AND the six
+      Amazon GitHub users — chris-trag, knmeiss, giolaq, anishamalde,
+      mosesroth, emersonsklar — at submit time (invites expire in 7 days;
+      do not send earlier)
 - [ ] Demo video: under 3 minutes, public YouTube or Vimeo, English, no
       background music, no third-party trademarks
 - [ ] Paste this Devpost text (track + mini-challenge selected on the form)
