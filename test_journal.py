@@ -267,6 +267,29 @@ def test_provider_rejects_stale_fencing_token():
     print("PASS provider: stale/missing fencing token rejected, no effect")
 
 
+def test_unverified_booking_halts_dependent_steps():
+    """End-to-end: when the provider can't verify the persisted receipt,
+    the workflow halts -- the unconfirmed booking is not recorded locally,
+    dependent steps (calendar, notify) never run, and the receipt says
+    needs-review instead of narrating a completed booking."""
+    result = run_protected_lost_ack(incident_id="RIDE-HALT",
+                                    provider_amnesia=True)
+    assert result["halted"] is True, result
+    assert [s["step"]["name"] for s in result["steps"]] == ["reserve_ride"]
+    ride = result["steps"][0]
+    assert ride["needs_review"] is True, ride
+    assert ride["verified"] is False, ride
+    # The fresh provider recorded no effects at all.
+    assert result["ride_bookings"] == 0, result
+    assert result["provider_calls"] == 0, result
+    # The receipt flags needs-review, not a completed booking.
+    from sim.receipt import receipt_from_lost_ack
+    receipt = receipt_from_lost_ack(result)
+    assert len(receipt["operations"]) == 1, receipt["operations"]
+    assert receipt["operations"][0]["retry_decision"] == "needs-review"
+    print("PASS halt: unverified booking stops the workflow, needs-review")
+
+
 def test_intent_commit_lifecycle():
     j = _tmp_journal()
     try:
@@ -499,6 +522,7 @@ TESTS = [
     test_gateway_rejects_stale_generation_before_provider,
     test_full_restart_with_provider_state_lost_needs_review,
     test_provider_rejects_stale_fencing_token,
+    test_unverified_booking_halts_dependent_steps,
     test_intent_commit_lifecycle,
     test_retry_same_key_same_payload_reuses_receipt,
     test_same_key_different_payload_is_conflict,

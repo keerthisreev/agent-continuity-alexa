@@ -11,7 +11,7 @@ genuinely hers before submitting.
 Agent Continuity Layer
 
 ## Tagline
-The AI that doesn't do it twice — commit-aware recovery for Alexa+ workflows.
+Continuity control for AI workflows — recover ambiguous failures without replaying work or trusting unverified results.
 
 ## Track
 Alexa+ — simulated Alexa+ experience in a web app (per the official rules, the
@@ -19,17 +19,28 @@ simulated path needs no MCP surface; the simulation source is in this repo).
 
 ## Description (paste into Devpost)
 
-**The agent is green. Its decisions aren't — and now, its actions can't repeat.**
+**The agent is green. Its decisions aren't — and when an action's outcome turns
+ambiguous, the recovery shouldn't be a guess.**
 
 The failure no monitor catches: an AI assistant performs an action, loses the
 acknowledgement, and tries again. The user gets charged twice, booked twice, the
-same task executed twice. The Agent Continuity Layer is the reliability layer
-that ends that uncertainty: a **continuity gateway** sits between the agent and
+same task executed twice. The Agent Continuity Layer is the continuity control
+layer that recovers the workflow without replaying completed work — and never
+trusts a result it can't verify: a **continuity gateway** sits between the agent and
 the downstream provider, persists every effect receipt to a **SQLite operation
 journal before the acknowledgement goes out**, and serves retries from the
 journal instead of re-executing. Same idempotency key, same full operation
 (service, op, target, params) → the committed receipt is reused. Same key, a
 different operation → rejected loudly, never silently conflated.
+
+**Why not just idempotency keys?** A per-operation key stops a repeated request
+from creating a second effect — established practice, and this layer relies on
+it. But a key alone doesn't establish the outcome of a *multi-step workflow*
+after a restart, doesn't resolve an *unknown* provider state, and doesn't stop
+a *stale agent* from acting after failover. That's the gap this closes: the
+durable journal plus reconcile-before-retry, fencing generations enforced at
+the gateway *and* the provider, and a recovery receipt that proves what happened
+— or says "needs human review" when the outcome can't be verified.
 
 **This submission: a conversational, Alexa+-style simulated experience.**
 "Arrange an airport pickup for 6:30 tomorrow, add it to my calendar, and send
@@ -47,7 +58,8 @@ logical ticks, duplicates prevented, the rerun command).
 foundation — independent health contracts per role, gray-failure detection
 (alive but wrong), epoch fencing so a recovered primary can't split-brain, hot
 standby resuming unfinished work from the continuity package, and a forensic
-ledger behind 7 read-only MCP tools answering "what happened?"
+ledger — also exposed through 7 read-only MCP tools; the sim chat answers
+"what happened?" through the shared ledger-view logic.
 
 **Honesty note (also enforced in the UI):** every fault in the demo is a
 deterministic, preconfigured, labeled-simulated fault; the enforced invariants
@@ -65,7 +77,9 @@ conversational sim control surface, now with the advertised booking request
 wired to the working recovery flow (type the airport-pickup sentence — the
 chat narrates commit → lost ack → journal check → one booking + receipt); (2) the baseline-vs-protected ablation
 runner; (3) the per-scenario reliability scorecard from the real metrics
-functions; (4) ledger-backed "what happened?" answers via the 7 MCP tools;
+functions; (4) forensic ledger with 7 read-only MCP tools, plus
+ledger-backed "what happened?" answers in the sim chat via the shared view
+logic;
 (5) the SQLite operation journal + continuity gateway + lost-ack scenario;
 (6) the recovery receipt (card + JSON export); (7) break-it challenge mode;
 (8) review hardening — the agent/gateway information boundary, full-operation
@@ -74,7 +88,7 @@ authorization at the gateway; the provider itself validates the fencing token
 on every call (defense in depth against the check-then-act race); plus the
 honest restart proof — if the provider's state can't be re-verified after a
 restart, the receipt says "needs human review" instead of manufacturing a
-success. **87/87 tests green, zero skipped** (full output in
+success. **88/88 tests green, zero skipped** (full output in
 `docs/test-evidence.md`). The demo path is fully deterministic
 and offline — no API key needed to reproduce it.
 
@@ -104,11 +118,12 @@ letting builders discover it mid-sprint. Workaround: built the simulation as a
 web app per the permitted path. Concrete suggestion: publish the simulator or
 mark the track "simulation path" explicitly.
 
-**The private-repo collaborator flow.** What for: shared the private repo with
-testing@devpost.com plus the five Amazon reviewers at submit time. What worked:
-the GitHub App installation flow scoped access to just this repo. What needs
-work: invitations expire in 7 days, so they must be sent at submit time, not
-earlier — worth surfacing on the rules page as a gotcha.
+**The private-repo collaborator flow.** What for: plan to share the private repo with
+testing@devpost.com plus the five Amazon reviewers at submit time (not yet done —
+invitations expire in 7 days, so they must go out at submission, not earlier).
+What worked so far: the GitHub App installation flow scoped access to just this repo
+during the build. What needs work: surfacing the 7-day expiry as a gotcha on the
+rules page itself, since "invite at submit time" is easy to get wrong.
 
 **Video.** Screen recording with voiceover, trimmed to under 3 minutes.
 
@@ -121,7 +136,8 @@ Attach `docs/friction-log-draft.md` from the repo.
 - [x] Merge to `main` (PR #1 squash-merged; `alexa-plus-sim` branch deleted)
 - [x] Merge the review-hardening PR (PR #3 squash-merged)
 - [x] Merge the gateway-fencing PR (PR #4 squash-merged)
-- [ ] Merge the honest-restart + /sim first-screen PR (forthcoming) → `main`, delete branch
+- [x] Merge the honest-restart + /sim first-screen PR (PR #5 squash-merged)
+- [x] Merge the booking-flow + provider-fencing PR (PR #6 squash-merged)
 - [ ] Repo: private is fine IF shared with testing@devpost.com AND the five
       Amazon GitHub users — knmeiss, giolaq, anishamalde, mosesroth, emersonsklar
       — at submit time (invites expire in 7 days; do not send earlier)

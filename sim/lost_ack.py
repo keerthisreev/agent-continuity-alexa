@@ -252,9 +252,16 @@ class ContinuityGateway:
 
 
 def run_protected_lost_ack(incident_id: str = "INC-1043",
-                           journal_path: Optional[str] = None) -> Dict[str, Any]:
+                           journal_path: Optional[str] = None,
+                           provider_amnesia: bool = False) -> Dict[str, Any]:
     """The user task under journal discipline. Always offline:
-    StubDiagnostician, live=False."""
+    StubDiagnostician, live=False.
+
+    provider_amnesia (test hook): after the ack is lost, replace the
+    provider with a fresh one that has no record of the booking --
+    simulating provider state loss. The retry must then surface
+    needs-review and halt instead of completing dependent steps.
+    """
     layer, store, primaries = make_world(diagnostician=StubDiagnostician(),
                                          live=False)
     assert layer.live is False
@@ -280,6 +287,7 @@ def run_protected_lost_ack(incident_id: str = "INC-1043",
     gateway = ContinuityGateway(provider, journal, layer.fencing,
                                 "remediation")
     steps: List[Dict[str, Any]] = []
+    halted = False
     for i, step in enumerate(USER_TASK_STEPS):
         op_id = f"{incident_id}:user_task:{i}:{step['name']}"
         key = op_id  # stable logical operation id doubles as idempotency key
@@ -311,6 +319,13 @@ def run_protected_lost_ack(incident_id: str = "INC-1043",
             journal.close()
             journal = OperationJournal(journal.path)
             gateway.journal = journal
+            if provider_amnesia:
+                # Simulated provider state loss: the new provider enforces
+                # fencing tokens like the old one, but has no record of
+                # the committed booking.
+                gateway.provider = SimulatedProvider(fencing=layer.fencing,
+                                                     role="remediation")
+                provider = gateway.provider
             layer.ledger.record(
                 "gateway_restart",
                 {"op": op_id,
@@ -328,10 +343,34 @@ def run_protected_lost_ack(incident_id: str = "INC-1043",
             # By fault definition the provider created the effect on the
             # first (ack-lost) attempt.
             created = True
+            halted_here = needs_review
         else:
             result = gateway.execute(op, ledger=layer.ledger, tick=tick)
             agent_receipt = result["receipt"]
             created = result["created"]
+            halted_here = False
+        if halted_here:
+            # The persisted receipt cannot be verified against the
+            # provider. Halt: do NOT record the local effect as confirmed,
+            # do NOT run dependent steps that assume a confirmed booking
+            # (calendar, partner notification). The receipt carries the
+            # needs-review decision; a human resolves it.
+            layer.ledger.record(
+                "booking_unverified_halt",
+                {"op": op_id,
+                 "reason": "journal holds a receipt the provider cannot "
+                           "confirm; dependent steps halted pending human "
+                           "review"},
+                tick)
+            steps.append({
+                "step": step, "op_id": op_id, "key": key,
+                "receipt": agent_receipt, "created": created,
+                "reused": reused, "recovery_decision": recovery_decision,
+                "verified": verified, "needs_review": needs_review,
+                "provider_calls_after": provider.calls,
+            })
+            halted = True
+            break
         # The agent records the local effect only once it holds a receipt.
         # The store's idempotent apply refuses any duplicate key anyway
         # (belt and suspenders, pinned in test_journal.py).
@@ -349,10 +388,13 @@ def run_protected_lost_ack(incident_id: str = "INC-1043",
             "provider_calls_after": provider.calls,
         })
 
-    # Real escalation closes the workflow.
-    result = layer.invoke("escalation", ctx, primaries["escalation"])
-    layer.apply_effects(result, store)
-    ctx["escalation"] = result["output"]
+    # Real escalation closes the workflow -- unless the user task halted
+    # on an unverified booking, in which case there is nothing normal to
+    # close; the halt record and the needs-review receipt are the outcome.
+    if not halted:
+        result = layer.invoke("escalation", ctx, primaries["escalation"])
+        layer.apply_effects(result, store)
+        ctx["escalation"] = result["output"]
 
     ride_bookings = sum(1 for r in provider.created_receipts
                         if r["kind"] == "reserve")
@@ -361,6 +403,7 @@ def run_protected_lost_ack(incident_id: str = "INC-1043",
         "incident_id": incident_id,
         "failure": "lost_ack",
         "fault_label": FAULT_LABEL,
+        "halted": halted,
         "layer": layer,
         "store": store,
         "journal": journal,

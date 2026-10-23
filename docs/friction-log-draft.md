@@ -11,6 +11,13 @@ the workaround. All entries below are real events from the Oct 22–23 build.
   assumed they were missing without checking the repo.
 - **Workaround:** Skipped new MCP work entirely. The sim's "what happened?" answers
   call the existing ledger tools instead of rebuilding them.
+- **Steps attempted:** Read the track docs; sketched an MCP build plan; searched the
+  repo for existing ledger/MCP surfaces before writing code; found the 7 tools
+  with 45/45 tests already green.
+- **Severity:** Low — a lucky discovery that saved half a day.
+- **Suggestion:** Hackathon briefs could include a "check what already exists"
+  prompt in the getting-started guide; it would have short-circuited the plan
+  even earlier.
 
 ## 2. An external review analyzed a week-stale remote
 
@@ -20,6 +27,12 @@ the workaround. All entries below are real events from the Oct 22–23 build.
   fencing fixes. Its build plan duplicated work that was already done.
 - **Workaround:** Re-based the plan on the actual local tree before writing any code;
   the sim reuses the real engine, ledger, and fencing rather than re-implementing them.
+- **Steps attempted:** Received the external review; started implementing its build
+  plan; noticed the proposed work duplicated existing modules; diffed the public
+  remote against the local tree and confirmed a ~7-day gap.
+- **Severity:** Medium — about an hour of planning spent before the mismatch surfaced.
+- **Suggestion:** Anyone reviewing a repo (human or AI) should check `git log`
+  recency on the remote first; stale-remote analysis is a quiet, common failure.
 
 ## 3. Merging the MCP/showcase branch into main produced 6 conflicts
 
@@ -30,6 +43,11 @@ the workaround. All entries below are real events from the Oct 22–23 build.
 - **Workaround:** Resolved by letting the newer credit-safety code win everywhere;
   the tripwire supersedes the socket-level duplicate. Re-ran the full suite:
   50/50 green post-merge, demo runs offline end-to-end.
+- **Steps attempted:** Ran the merge; inspected all 6 conflicts; confirmed each was
+  newer-hardening vs older-code (not two competing features); resolved; re-ran suite.
+- **Severity:** Medium — resolved in under an hour, no data loss.
+- **Suggestion:** Smaller, more frequent merges between parallel hardening tracks;
+  the conflicts came from two tracks touching the same live opt-in paths.
 
 ## 4. Chose the simulated Alexa+ route over a real self-hosted MCP server
 
@@ -41,6 +59,13 @@ the workaround. All entries below are real events from the Oct 22–23 build.
   a web app with the simulation's source in the repo — so I built the conversational
   sim on the real engine (additive only, no MCP surface), source committed on
   `alexa-plus-sim`.
+- **Steps attempted:** Read the MCP spec (2025-11-25+, Streamable HTTP); estimated
+  server + demo + video effort against the ~24h remaining; read the official
+  rules and FAQ on permitted submission routes; chose the simulated path.
+- **Severity:** Low — a scope decision, not a blocker; the permitted route fit.
+- **Suggestion:** Keep the "simulated experience" route explicitly documented in
+  future hackathons — that FAQ entry was the single deciding factor, and its
+  clarity saved a bad last-minute scramble.
 
 ## 5. Bundle downloads through chat became the bottleneck
 
@@ -51,6 +76,12 @@ the workaround. All entries below are real events from the Oct 22–23 build.
 - **Workaround:** Connected the GitHub App (OAuth under her identity) with access
   scoped to just this repo, and pushed branches through the connector instead.
   No tokens exchanged, no terminal work for her; she approves each push.
+- **Steps attempted:** Shipped three bundles through chat; watched the download /
+  apply cycle eat build time; asked what hurt; connected the GitHub App scoped
+  to the single repo; verified blob SHAs matched before each push.
+- **Severity:** High — on deadline eve, the manual handoff was the bottleneck.
+- **Suggestion:** For agent platforms: a first-class "push a branch to the user's
+  repo" flow (with per-push approval) beats file downloads for code handoff.
 
 ## 6. The test suite was green while a showcase route 500'd
 
@@ -61,6 +92,32 @@ the workaround. All entries below are real events from the Oct 22–23 build.
 - **Workaround:** Fixed the stale API calls and added the missing regression test
   that drives the route itself. Lesson applied to the new work: the challenge-mode
   tests hit the HTTP endpoints, not just the functions behind them.
+- **Steps attempted:** Ran the suite (green); manually opened the route (500);
+  traced the KeyError to stale pre-rework store/checkpoint APIs; fixed; added
+  the route-level regression test; re-ran green.
+- **Severity:** High — a judge clicking through the demo could have hit it.
+- **Suggestion:** For the project itself: every user-facing route gets an
+  end-to-end test that drives the HTTP layer, not just the functions behind it.
+  (Applied: the new challenge-mode tests hit the endpoints.)
+
+## 7. The advertised booking sentence didn't work in the chat
+
+- **Expected:** Typing "Arrange an airport pickup for 6:30 tomorrow…" starts the booking recovery flow.
+- **Actual:** The chat's keyword parser only knew incident terms (payments, checkout,
+  database) — the advertised sentence fell through to generic help text. The page
+  promised a booking flow the chat couldn't start.
+- **Workaround:** Added a `book_ride` intent (airport/pickup/taxi) with a narrated
+  handler that runs the real protected scenario end to end; the help text and page
+  chips now lead with the booking story. Pinned by a test on the exact advertised
+  sentence.
+- **Steps attempted:** An external review typed the advertised sentence and got help
+  text; reproduced locally; traced it to the TASK_KEYWORDS table; added the intent
+  + handler + test; verified live against a local server (6 messages, receipt
+  rendered, download link returns 200).
+- **Severity:** High — a judge doing the obvious thing would have doubted the product.
+- **Suggestion:** For the project: every sentence quoted in the UI or docs gets a
+  test that types it verbatim. (Applied: the new booking test uses the exact
+  advertised utterance.)
 
 ---
 

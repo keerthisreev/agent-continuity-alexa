@@ -575,6 +575,39 @@ class SimSession:
         from .receipt import receipt_from_lost_ack
         result = run_protected_lost_ack(incident_id="RIDE-2049")
         receipt = receipt_from_lost_ack(result)
+        if result.get("halted"):
+            # The journal holds a receipt the provider cannot confirm.
+            # Honest outcome: stop, surface needs-review, do not narrate
+            # a completed booking.
+            return [
+                {"kind": "text",
+                 "text": ("On it — booking your airport pickup for 6:30 "
+                          "tomorrow. I'll add it to your calendar and send "
+                          "your partner the details.")},
+                {"kind": "text",
+                 "text": ("The ride provider confirmed the booking… but the "
+                          "confirmation never reached me. *(Simulated fault — "
+                          "deterministic and preconfigured: the provider "
+                          "commits, the acknowledgement is lost.)*")},
+                {"kind": "text",
+                 "text": ("Before I retry, I'm checking the operation journal "
+                          "for this exact action — same service, same "
+                          "operation, same details.")},
+                {"kind": "text",
+                 "text": ("The journal has a record of the booking, but I "
+                          "can't verify it against the provider right now — "
+                          "so I'm **not** retrying, and I'm **not** marking "
+                          "this done. Booking a second ride, or telling your "
+                          "partner about a pickup I can't confirm, would be "
+                          "worse than stopping.")},
+                {"kind": "text",
+                 "text": ("This needs human review before I touch your "
+                          "calendar. Here's exactly what I know:")},
+                {"kind": "booking_receipt",
+                 "incident_id": result["incident_id"],
+                 "receipt": receipt,
+                 "title": "Booking recovery — needs human review"},
+            ]
         ride = result["steps"][0]
         effect_id = (ride["receipt"] or {}).get("effect_id", "not recorded")
         return [
