@@ -47,7 +47,8 @@ logical ticks, duplicates prevented, the rerun command).
 foundation — independent health contracts per role, gray-failure detection
 (alive but wrong), epoch fencing so a recovered primary can't split-brain, hot
 standby resuming unfinished work from the continuity package, and a forensic
-ledger behind 7 read-only MCP tools answering "what happened?"
+ledger — also exposed through 7 read-only MCP tools; the sim chat answers
+"what happened?" through the shared ledger-view logic.
 
 **Honesty note (also enforced in the UI):** every fault in the demo is a
 deterministic, preconfigured, labeled-simulated fault; the enforced invariants
@@ -65,7 +66,9 @@ conversational sim control surface, now with the advertised booking request
 wired to the working recovery flow (type the airport-pickup sentence — the
 chat narrates commit → lost ack → journal check → one booking + receipt); (2) the baseline-vs-protected ablation
 runner; (3) the per-scenario reliability scorecard from the real metrics
-functions; (4) ledger-backed "what happened?" answers via the 7 MCP tools;
+functions; (4) forensic ledger with 7 read-only MCP tools, plus
+ledger-backed "what happened?" answers in the sim chat via the shared view
+logic;
 (5) the SQLite operation journal + continuity gateway + lost-ack scenario;
 (6) the recovery receipt (card + JSON export); (7) break-it challenge mode;
 (8) review hardening — the agent/gateway information boundary, full-operation
@@ -74,7 +77,7 @@ authorization at the gateway; the provider itself validates the fencing token
 on every call (defense in depth against the check-then-act race); plus the
 honest restart proof — if the provider's state can't be re-verified after a
 restart, the receipt says "needs human review" instead of manufacturing a
-success. **87/87 tests green, zero skipped** (full output in
+success. **88/88 tests green, zero skipped** (full output in
 `docs/test-evidence.md`). The demo path is fully deterministic
 and offline — no API key needed to reproduce it.
 
@@ -104,11 +107,12 @@ letting builders discover it mid-sprint. Workaround: built the simulation as a
 web app per the permitted path. Concrete suggestion: publish the simulator or
 mark the track "simulation path" explicitly.
 
-**The private-repo collaborator flow.** What for: shared the private repo with
-testing@devpost.com plus the five Amazon reviewers at submit time. What worked:
-the GitHub App installation flow scoped access to just this repo. What needs
-work: invitations expire in 7 days, so they must be sent at submit time, not
-earlier — worth surfacing on the rules page as a gotcha.
+**The private-repo collaborator flow.** What for: plan to share the private repo with
+testing@devpost.com plus the five Amazon reviewers at submit time (not yet done —
+invitations expire in 7 days, so they must go out at submission, not earlier).
+What worked so far: the GitHub App installation flow scoped access to just this repo
+during the build. What needs work: surfacing the 7-day expiry as a gotcha on the
+rules page itself, since "invite at submit time" is easy to get wrong.
 
 **Video.** Screen recording with voiceover, trimmed to under 3 minutes.
 
@@ -121,7 +125,8 @@ Attach `docs/friction-log-draft.md` from the repo.
 - [x] Merge to `main` (PR #1 squash-merged; `alexa-plus-sim` branch deleted)
 - [x] Merge the review-hardening PR (PR #3 squash-merged)
 - [x] Merge the gateway-fencing PR (PR #4 squash-merged)
-- [ ] Merge the honest-restart + /sim first-screen PR (forthcoming) → `main`, delete branch
+- [x] Merge the honest-restart + /sim first-screen PR (PR #5 squash-merged)
+- [x] Merge the booking-flow + provider-fencing PR (PR #6 squash-merged)
 - [ ] Repo: private is fine IF shared with testing@devpost.com AND the five
       Amazon GitHub users — knmeiss, giolaq, anishamalde, mosesroth, emersonsklar
       — at submit time (invites expire in 7 days; do not send earlier)
