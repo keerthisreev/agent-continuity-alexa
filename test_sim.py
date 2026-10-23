@@ -353,7 +353,12 @@ def test_challenge_verdict_badges_render():
     html_s = client.post("/sim/api/challenge",
                          json={"scenario": "stale_write"}).get_json()["html"]
     assert "rejected" in html_s.lower(), html_s
-    print("PASS ui: challenge verdict badges render for all three scenarios")
+    assert "Persist before acknowledgement" in html, "lost-ack result must explain durable receipt ordering"
+    assert "Fail closed on unknown state" in html, "lost-ack result must explain the unknown-provider boundary"
+    assert "Business invariant" in html_u, "unsafe-action result must explain its enforcement rule"
+    assert "Generation authority" in html_s, "stale-write result must explain fencing generations"
+    assert "different problems" in html_s.lower(), "stale-write result must distinguish fencing from idempotency"
+    print("PASS ui: challenge verdict badges and technical explanations render for all three scenarios")
 
 
 def test_receipt_halt_styling_on_human_review():

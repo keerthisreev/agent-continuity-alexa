@@ -79,7 +79,7 @@ python3 test_robust.py       #  9/9: hardening (config, threads, export, dashboa
 python3 test_nemotron.py     # 12/12: model seam, offline-safe
 python3 test_mcp.py          # 11/11: MCP read-only ledger
 python3 test_showcase.py     #  7/7: dashboard scenario gallery
-python3 test_sim.py          # 18/18: Alexa+ sim (initiate -> interrupt -> resume + booking flow)
+python3 test_sim.py          # 21/21: Alexa+ sim (initiate -> interrupt -> resume + booking flow)
 python3 test_journal.py      # 21/21: operation journal + gateway + lost-ack scenario
 python3 demo.py              # the story, zero narration
 python3 demo.py --failure gray
@@ -90,7 +90,7 @@ python3 examples/wrap_existing.py   # wrap YOUR agent shape without touching it
 Run everything at once:
 ```bash
 for t in test_continuity test_robust test_nemotron test_mcp test_showcase test_sim test_journal; do python3 $t.py; done
-# expected: 91/91 green, zero network calls, no API keys required
+# expected: 94/94 green, zero network calls, no API keys required
 ```
 
 **Alexa+ track submission (simulated Alexa+ experience, this repo's `main` branch):**
@@ -98,7 +98,7 @@ for t in test_continuity test_robust test_nemotron test_mcp test_showcase test_s
 python3 dashboard/app.py     # -> http://127.0.0.1:5000/sim  (chat: "Arrange an airport pickup for 6:30 tomorrow, add it to my calendar, and send my partner the details." -> narrated booking recovery + receipt)
 python3 -m sim.ablation --failure lost_ack --incident INC-1043  # commit-aware recovery: the ack is lost after commit
 python3 -m sim.ablation --failure gray --incident INC-1043   # baseline vs protected, side-by-side from real runs
-python3 test_sim.py          # 18/18: the sim's own proof
+python3 test_sim.py          # 21/21: the sim's own proof
 ```
 No API keys, no network — everything above runs fully offline and deterministic.
 
@@ -323,7 +323,7 @@ docs/devpost-alexa-draft.md   Devpost description draft
 
 - [Devpost description draft](docs/devpost-alexa-draft.md)
 - [Measured results table](docs/results-table.md)
-- [Test evidence (91/91)](docs/test-evidence.md)
+- [Test evidence (94/94 reported on prior validated commit; current branch requires rerun)](docs/test-evidence.md)
 - [Friction log](docs/friction-log-draft.md)
 
 ## License
