@@ -95,7 +95,7 @@ authorization at the gateway; the provider itself validates the fencing token
 on every call (defense in depth against the check-then-act race); plus the
 honest restart proof — if the provider's state can't be re-verified after a
 restart, the receipt says "needs human review" instead of manufacturing a
-success. **91/91 tests green, zero skipped** (full output in
+success. **94/94 tests green, zero skipped** (full output in
 `docs/test-evidence.md`). The demo path is fully deterministic
 and offline — no API key needed to reproduce it.
 
