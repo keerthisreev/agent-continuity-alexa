@@ -50,6 +50,10 @@ STATUSES = ("pending", "committed", "unknown", "reconciled")
 DECISION_REUSE_COMMITTED = "reuse_committed_receipt"
 DECISION_RECONCILED_AMBIGUOUS = "reconciled_ambiguous_commit__receipt_reused"
 DECISION_NO_RECORD = "no_recorded_effect__verify_provider_before_retry"
+# Written by mark_needs_review(): the journal holds a receipt the provider
+# cannot confirm. Presented as needs-review, never as a verified recovery.
+DECISION_UNVERIFIED_NEEDS_REVIEW = \
+    "receipt_from_journal__provider_unverifiable__needs_review"
 
 
 def _canonical_operation(service: Optional[str], op: Optional[str],
@@ -282,6 +286,23 @@ class OperationJournal:
                     "UPDATE operations SET recovery_decision=?, updated_at=? "
                     "WHERE logical_op_id = ?",
                     (decision, now, logical_op_id))
+            self._conn.commit()
+            return self.get(logical_op_id)
+
+    def mark_needs_review(self, logical_op_id: str,
+                          decision: str) -> Dict[str, Any]:
+        """The journal holds a receipt the provider cannot confirm: record
+        needs-review instead of presenting a verified recovery. The caller
+        (the gateway) established that re-verification failed; the journal
+        records the outcome, it does not invent success."""
+        now = _now()
+        with self._lock:
+            if self.get(logical_op_id) is None:
+                raise KeyError(f"no such operation: {logical_op_id}")
+            self._conn.execute(
+                "UPDATE operations SET recovery_decision=?, updated_at=? "
+                "WHERE logical_op_id = ?",
+                (decision, now, logical_op_id))
             self._conn.commit()
             return self.get(logical_op_id)
 

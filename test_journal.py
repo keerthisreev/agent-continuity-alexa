@@ -20,7 +20,8 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from continuity.journal import (IdempotencyConflict, IdempotencyKeyMismatch,
+from continuity.journal import (DECISION_UNVERIFIED_NEEDS_REVIEW,
+                                IdempotencyConflict, IdempotencyKeyMismatch,
                                 OperationJournal, _fingerprint)
 from continuity.fencing import StaleEpochError
 from continuity.diagnostician import StubDiagnostician
@@ -191,6 +192,50 @@ def test_gateway_rejects_stale_generation_before_provider():
         journal.close()
         os.unlink(path)
     print("PASS gateway: stale generation rejected before provider dispatch")
+
+
+def test_full_restart_with_provider_state_lost_needs_review():
+    """The strongest claim, scoped honestly. Simulates a FULL restart: the
+    journal survives on disk, but the provider's in-memory state is gone.
+    The retry must NOT blindly re-book (a fresh provider would not dedupe
+    the key) and must NOT present the persisted receipt as a confirmed
+    outcome: it surfaces needs-review instead."""
+    layer, _, _ = make_world(diagnostician=StubDiagnostician(), live=False)
+    fd, path = tempfile.mkstemp(prefix="test-restart-", suffix=".db")
+    os.close(fd)
+    provider = SimulatedProvider()
+    journal = OperationJournal(path)
+    gateway = ContinuityGateway(provider, journal, layer.fencing,
+                                "remediation")
+    op = {"op_id": "op-restart", "key": "restart-key", **_ride_op()}
+    try:
+        gateway.execute(op, lose_ack=True)
+        raise AssertionError("lose_ack=True must raise, not return")
+    except AcknowledgementLost:
+        pass
+    assert len(provider.created_receipts) == 1
+    # FULL restart: journal reloaded from disk, provider state GONE.
+    journal.close()
+    journal2 = OperationJournal(path)
+    fresh_provider = SimulatedProvider()
+    gateway2 = ContinuityGateway(fresh_provider, journal2, layer.fencing,
+                                 "remediation")
+    try:
+        result = gateway2.execute(op)
+        assert result["reused"] is True, result
+        assert result["needs_review"] is True, result
+        assert result["verified"] is False, result
+        # Nothing was blindly re-booked.
+        assert fresh_provider.calls == 0, fresh_provider.calls
+        assert fresh_provider.created_receipts == []
+        # The journal records the honest outcome, not a fake success.
+        rec = journal2.get("op-restart")
+        assert rec["recovery_decision"] == DECISION_UNVERIFIED_NEEDS_REVIEW, \
+            rec
+    finally:
+        journal2.close()
+        os.unlink(path)
+    print("PASS restart: provider state lost -> needs-review, no blind re-book")
 
 
 def test_intent_commit_lifecycle():
@@ -423,6 +468,7 @@ TESTS = [
     test_key_reuse_across_operations_rejected,
     test_agent_never_saw_receipt,
     test_gateway_rejects_stale_generation_before_provider,
+    test_full_restart_with_provider_state_lost_needs_review,
     test_intent_commit_lifecycle,
     test_retry_same_key_same_payload_reuses_receipt,
     test_same_key_different_payload_is_conflict,

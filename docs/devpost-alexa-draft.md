@@ -68,8 +68,10 @@ functions; (4) ledger-backed "what happened?" answers via the 7 MCP tools;
 (6) the recovery receipt (card + JSON export); (7) break-it challenge mode;
 (8) review hardening — the agent/gateway information boundary, full-operation
 fingerprinting, cross-operation key-reuse rejection, and pre-dispatch fencing
-authorization at the gateway. **84/84 tests green, zero skipped** (full output
-in `docs/test-evidence.md`). The demo path is fully deterministic
+authorization at the gateway; plus the honest restart proof — if the provider's
+state can't be re-verified after a restart, the receipt says "needs human
+review" instead of manufacturing a success. **85/85 tests green, zero skipped**
+(full output in `docs/test-evidence.md`). The demo path is fully deterministic
 and offline — no API key needed to reproduce it.
 
 **Try it.** `python3 -m sim.ablation --failure lost_ack` for the flagship
@@ -114,7 +116,8 @@ Attach `docs/friction-log-draft.md` from the repo.
 ## Submission checklist (for her — from the official rules)
 - [x] Merge to `main` (PR #1 squash-merged; `alexa-plus-sim` branch deleted)
 - [x] Merge the review-hardening PR (PR #3 squash-merged)
-- [ ] Merge the gateway-fencing PR (forthcoming) → `main`, delete branch
+- [x] Merge the gateway-fencing PR (PR #4 squash-merged)
+- [ ] Merge the honest-restart + /sim first-screen PR (forthcoming) → `main`, delete branch
 - [ ] Repo: private is fine IF shared with testing@devpost.com AND the five
       Amazon GitHub users — knmeiss, giolaq, anishamalde, mosesroth, emersonsklar
       — at submit time (invites expire in 7 days; do not send earlier)
