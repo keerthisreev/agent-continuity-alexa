@@ -1,12 +1,12 @@
 # Test evidence — Alexa+ submission
 
-- Date: 2026-10-23 (early morning, America/Chicago)
-- Branch: main (final freeze)
+- Latest full-suite report: user-supplied verification of commit `5a0f549` on 2026-10-23 (America/Chicago), before PR #13's additional assertions
+- Prior detailed output below was captured before the three PR #12 UI regression checks; it is retained as historical output, not a fresh rerun of the current branch.
 - Command: `for t in test_continuity test_robust test_nemotron test_mcp test_showcase test_sim test_journal; do python3 $t.py; done`
 - Environment: clean venv, Python 3.12.3, with flask, mcp>=2.0, pyyaml, requests installed — **zero skipped tests**
 - Also offline: MODEL_API_KEY unset, CONTINUITY_LIVE unset; no network; deterministic (no randomness)
 
-## Full output
+## Full output from the earlier detailed run (historical; see note above)
 ```
 === test_continuity ===
 PASS healthy run: 2 incidents, 8 stages, zero false failovers
@@ -105,8 +105,11 @@ PASS ablation: silent failure -> replayed by standby
 PASS incident view: standby_activated present in incident timeline
 PASS copy: no $20K language; framed as a reliability layer
 PASS booking: advertised utterance -> narrated recovery + receipt
+PASS ui: challenge verdict badges render for all three scenarios
+PASS ui: receipt halt styling tracks human_review_flags honestly
+PASS ui: /sim page has reset, light theme, CTA, and simulated disclosure
 
-18/18 sim tests passed
+21/21 sim tests passed
 
 === test_journal ===
 PASS journal: canonical operation fingerprint
@@ -134,3 +137,8 @@ PASS honesty: no banned language in new/changed files
 21/21 journal tests passed
 
 ```
+
+
+## Current validation requirement
+
+PR #13 adds additional assertions inside the existing `test_sim.py` UI test; it does not add a new test function or alter backend behavior. Re-run the seven-file command on the final `main` commit before claiming the current branch is freshly validated. The latest externally supplied full-run total before PR #13 was 94/94, zero skipped.
